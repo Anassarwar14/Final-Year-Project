@@ -7,7 +7,7 @@ This repository serves as the main codebase for our Final Year Project (FYP).
 ## ⚡ Tech Stack
 
 - **Framework**: [Next.js](https://nextjs.org) + [React](https://react.dev)  
-- **Runtime**: [Bun](https://bun.sh) (✨ faster, lighter alternative to Node.js, with built-in bundler, test runner, and package manager)  
+- **Runtime**: [Bun](https://bun.sh) (✨ 4x faster, lighter alternative to Node.js, with built-in bundler, test runner, and Node.js-compatible package manager)  
 - **API Framework (backend)**: [Hono](https://hono.dev) (🔥 ultra-fast, minimal framework — preferred over Express for performance & edge readiness)  
 - **Database**: [Supabase (PostgreSQL)](https://supabase.com)  
 - **ORM**: [Prisma](https://www.prisma.io)  
