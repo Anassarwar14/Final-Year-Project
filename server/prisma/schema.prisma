@@ -14,16 +14,57 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+
+// _______________________________ Enums _________________________________
+// Consolidating all Enums here for clarity
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum AiChatRole {
+  USER
+  MODEL
+}
+
+enum TransactionType {
+  BUY
+  SELL
+}
+
+enum AssetType {
+  STOCK
+  CRYPTO
+  ETF
+  MUTUAL_FUND
+  COMMODITY 
+}
+
+enum LearningStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum NewsSentiment {
+  POSITIVE
+  NEGATIVE
+  NEUTRAL
+}
+
+
+// _______________________________Core User & Auth Models (Your existing models, enhanced)________________________________
 model User {
-  id               String       @id @map("_id")
+  id               String    @id @default(cuid()) @map("_id")
   name             String
-  email            String
-  emailVerified    Boolean
+  email            String    @unique
+  emailVerified    Boolean   @default(false)
   image            String?
-  createdAt        DateTime
-  updatedAt        DateTime
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
   twoFactorEnabled Boolean?
-  role             String?
+  role             UserRole? @default(USER) // Changed to Enum
   banned           Boolean?
   banReason        String?
   banExpires       DateTime?
@@ -33,9 +74,13 @@ model User {
   invitations      Invitation[]
   twofactors       TwoFactor[]
 
-  @@unique([email])
-  @@map("user")
+  // --- New Relations for FYP Modules ---
+  portfolios         Portfolio[]
+  simulatorProfile   SimulatorProfile? // One-to-one
+  learningProgress   LearningProgress[]
+  aiChatSessions     AiChatSession[]
 }
+
 
 model Session {
   id                   String   @id @map("_id")
@@ -54,8 +99,9 @@ model Session {
   @@map("session")
 }
 
+
 model Account {
-  id                    String    @id @map("_id")
+  id                    String    @id @default(cuid()) @map("_id")
   accountId             String
   providerId            String
   userId                String
@@ -67,11 +113,12 @@ model Account {
   refreshTokenExpiresAt DateTime?
   scope                 String?
   password              String?
-  createdAt             DateTime
-  updatedAt             DateTime
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@map("account")
 }
+
 
 model Verification {
   id         String    @id @map("_id")
@@ -133,3 +180,219 @@ model TwoFactor {
 
   @@map("twoFactor")
 }
+
+
+
+
+// --- START: FYP MODULES ---
+
+// --- 1. Master Asset Table ---
+// Stores details for all tradable assets (stocks, crypto, etc.)
+// This table can be populated by Finnhub API.
+
+model Asset {
+  id     String @id // Use the asset's unique symbol as ID (e.g., "AAPL", "BINANCE:BTCUSDT")
+  name   String
+  type   AssetType
+  symbol String @unique // e.g., "AAPL"
+  exchange String? // e.g., "NASDAQ"
+  currency String? // e.g., "USD"
+  logoUrl  String?
+
+  // Relations
+  portfolios            Holding[] // All real holdings
+  simulatorHoldings     SimulatorHolding[] // All simulated holdings
+  portfolioTransactions Transaction[] // All real transactions
+  simulatorTransactions SimulatorTransaction[] // All simulated transactions
+  newsArticles          NewsArticle[] // M-N relation with News
+}
+
+// --- 2. AI Financial Advisor ---
+// Models for storing conversation history with the RAG chatbot.
+
+model AiChatSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String // e.g., "Discussion about EV stocks"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  messages  AiChatMessage[]
+}
+
+model AiChatMessage {
+  id        String       @id @default(cuid())
+  sessionId String
+  session   AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      AiChatRole // "USER" or "MODEL"
+  content   String // The text content of the message
+  sources   String[] // Array of strings for source URLs/documents, as per your RAG proposal
+  createdAt DateTime     @default(now())
+}
+
+// --- 3. Portfolio Management ---
+// Models for real-money portfolio tracking, holdings, and performance.
+
+model Portfolio {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String // e.g., "Retirement Fund", "Tech Plays"
+  description String?
+  cashBalance Decimal   @default(0.0) // Tracks user's cash in this portfolio
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  holdings             Holding[]
+  transactions         Transaction[]
+  performanceSnapshots PortfolioSnapshot[]
+}
+
+model Holding {
+  id              String   @id @default(cuid())
+  portfolioId     String
+  portfolio       Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  assetId         String
+  asset           Asset     @relation(fields: [assetId], references: [id])
+  quantity        Decimal // Total quantity held
+  averageBuyPrice Decimal // Average cost basis
+
+  @@unique([portfolioId, assetId]) // A user can only have one holding entry per asset in a portfolio
+}
+
+model Transaction {
+  id           String          @id @default(cuid())
+  portfolioId  String
+  portfolio    Portfolio        @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  assetId      String
+  asset        Asset            @relation(fields: [assetId], references: [id])
+  type         TransactionType // BUY or SELL
+  quantity     Decimal
+  pricePerUnit Decimal // Price at the time of transaction
+  executedAt   DateTime // When the transaction happened
+  createdAt    DateTime        @default(now())
+}
+
+model PortfolioSnapshot {
+  id          String    @id @default(cuid())
+  portfolioId String
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  date        DateTime // Timestamp of the snapshot
+  totalValue  Decimal // Total value of holdings + cash
+  cashValue   Decimal // Just the cash balance at that time
+  holdingsValue Decimal // Just the holdings value at that time
+
+  @@unique([portfolioId, date])
+}
+
+// --- 4. Learning Hub ---
+// Models for educational content and tracking user progress.
+
+model LearningCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique // e.g., "Stock Market Basics", "Crypto 101"
+  description String?
+  articles    LearningArticle[]
+}
+
+model LearningArticle {
+  id         String   @id @default(cuid())
+  title      String
+  content    String // Can store Markdown or HTML
+  author     String?
+  imageUrl   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  categoryId String
+  category   LearningCategory @relation(fields: [categoryId], references: [id])
+
+  progress LearningProgress[]
+}
+
+model LearningProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  articleId String
+  article   LearningArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  status    LearningStatus  @default(NOT_STARTED)
+  startedAt DateTime?
+  completedAt DateTime?
+
+  @@unique([userId, articleId]) // User can only have one progress entry per article
+}
+
+// --- 5. Trading Simulator ---
+// Models for the virtual trading environment. Mirrors the portfolio structure.
+
+model SimulatorProfile {
+  id             String    @id @default(cuid())
+  userId         String    @unique // One profile per user
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  virtualBalance Decimal   @default(100000.0) // Starting virtual cash
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  holdings             SimulatorHolding[]
+  transactions         SimulatorTransaction[]
+  performanceSnapshots SimulatorSnapshot[]
+}
+
+model SimulatorHolding {
+  id              String           @id @default(cuid())
+  profileId       String
+  profile         SimulatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  assetId         String
+  asset           Asset            @relation(fields: [assetId], references: [id])
+  quantity        Decimal
+  averageBuyPrice Decimal
+
+  @@unique([profileId, assetId])
+}
+
+model SimulatorTransaction {
+  id           String           @id @default(cuid())
+  profileId    String
+  profile      SimulatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  assetId      String
+  asset        Asset            @relation(fields: [assetId], references: [id])
+  type         TransactionType // BUY or SELL
+  quantity     Decimal
+  pricePerUnit Decimal
+  executedAt   DateTime
+  createdAt    DateTime         @default(now())
+}
+
+model SimulatorSnapshot {
+  id          String           @id @default(cuid())
+  profileId   String
+  profile     SimulatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date        DateTime
+  totalValue  Decimal // Total value of holdings + virtual cash
+  cashValue   Decimal // Just the virtual cash balance
+  holdingsValue Decimal // Just the holdings value
+
+  @@unique([profileId, date])
+}
+
+// --- 6. Market News ---
+// Model for storing news articles, populated by your News API.
+
+model NewsArticle {
+  id          String   @id @default(cuid())
+  sourceName  String? // e.g., "Reuters", "Bloomberg"
+  author      String?
+  title       String
+  description String
+  url         String   @unique // The original URL
+  imageUrl    String?
+  publishedAt DateTime
+  content     String? // The full content, if available
+  sentiment   NewsSentiment @default(NEUTRAL) // As per your proposal
+  createdAt   DateTime @default(now())
+
+  // M-N relation to link articles to specific assets
+  relatedAssets Asset[]
+}
+
+
