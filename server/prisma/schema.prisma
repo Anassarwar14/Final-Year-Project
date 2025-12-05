@@ -79,6 +79,8 @@ model User {
   simulatorProfile   SimulatorProfile? // One-to-one
   learningProgress   LearningProgress[]
   aiChatSessions     AiChatSession[]
+
+  @@map("user") // <--- Add this line
 }
 
 
@@ -394,5 +396,3 @@ model NewsArticle {
   // M-N relation to link articles to specific assets
   relatedAssets Asset[]
 }
-
-

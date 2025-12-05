@@ -1,69 +1,35 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { TrendingUp, Target, AlertTriangle, Lightbulb, Star, ThumbsUp } from "lucide-react"
+import { TrendingUp, Target, AlertTriangle, Lightbulb, Star, ThumbsUp, Bookmark } from "lucide-react"
 
-// Mock analysis data
-const marketAnalysis = [
-  {
-    id: 1,
-    title: "Q1 2024 Market Outlook: Navigating Uncertainty",
-    analyst: "Sarah Chen",
-    firm: "Goldman Sachs",
-    rating: "Bullish",
-    summary:
-      "Despite ongoing geopolitical tensions, we maintain a positive outlook for equities in Q1 2024, driven by strong corporate earnings and potential Fed policy shifts.",
-    keyPoints: [
-      "S&P 500 target: 4,950 by end of Q1",
-      "Technology sector remains overweight",
-      "Emerging markets showing resilience",
-      "Bond yields expected to stabilize",
-    ],
-    publishedAt: "2024-01-15",
-    likes: 234,
-    avatar: "/placeholder.svg?height=40&width=40",
-  },
-  {
-    id: 2,
-    title: "Tech Earnings Season: AI Revolution Continues",
-    analyst: "Michael Rodriguez",
-    firm: "Morgan Stanley",
-    rating: "Overweight",
-    summary:
-      "AI-focused companies are expected to deliver exceptional results this earnings season, with cloud computing and semiconductor stocks leading the charge.",
-    keyPoints: [
-      "NVIDIA expected to beat estimates by 15%",
-      "Cloud revenue growth accelerating",
-      "AI infrastructure spending increasing",
-      "Semiconductor demand remains strong",
-    ],
-    publishedAt: "2024-01-14",
-    likes: 189,
-    avatar: "/placeholder.svg?height=40&width=40",
-  },
-  {
-    id: 3,
-    title: "Federal Reserve Policy: Rate Cut Probability Analysis",
-    analyst: "Emma Thompson",
-    firm: "JPMorgan",
-    rating: "Neutral",
-    summary:
-      "Our analysis suggests a 65% probability of a 25bp rate cut in Q2 2024, contingent on inflation data and employment trends.",
-    keyPoints: [
-      "Core PCE trending toward 2% target",
-      "Labor market showing signs of cooling",
-      "Housing market stabilization expected",
-      "Dollar strength may moderate",
-    ],
-    publishedAt: "2024-01-13",
-    likes: 156,
-    avatar: "/placeholder.svg?height=40&width=40",
-  },
-]
+// --- Types ---
+
+// Matches Prisma NewsSentiment enum roughly
+type SentimentType = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
+
+interface NewsArticle {
+  id: string;
+  title: string;
+  sourceName: string | null;
+  author: string | null;
+  sentiment: SentimentType;
+  publishedAt: string;
+  description: string;
+  url: string;
+}
+
+interface AnalyticsData {
+  sentiments: Record<string, number>; // e.g. { POSITIVE: 10, NEGATIVE: 5 }
+  topAssets: any[];
+}
+
+// --- Mock Data (Placeholders for features not yet in DB) ---
 
 const sectorAnalysis = [
   { sector: "Technology", rating: "Overweight", target: 15.2, current: 12.8, color: "#10b981" },
@@ -116,54 +82,159 @@ const priceTargets = [
 ]
 
 export default function MarketAnalysis() {
-  const getRatingColor = (rating: string) => {
-    switch (rating.toLowerCase()) {
-      case "bullish":
-      case "overweight":
-        return "bg-green-500/10 text-green-600 hover:bg-green-500/20"
-      case "bearish":
-      case "underweight":
-        return "bg-red-500/10 text-red-600 hover:bg-red-500/20"
-      default:
-        return "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"
+  // --- State ---
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [reports, setReports] = useState<NewsArticle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savedArticles, setSavedArticles] = useState<Set<string>>(new Set());
+
+  // --- Data Fetching ---
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // 1. Fetch Analytics (for top cards)
+        // Adjust API path if your routing setup is different
+        const analyticsRes = await fetch('/api/news/analytics?dateRange=7d');
+        const analyticsData = await analyticsRes.json();
+        setAnalytics(analyticsData);
+
+        // 2. Fetch Latest News (mapped to "Analyst Reports")
+        const newsRes = await fetch('/api/news?limit=10&sortBy=publishedAt');
+        const newsData = await newsRes.json();
+        setReports(newsData.data || []); 
+      } catch (error) {
+        console.error("Failed to fetch market analysis", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // --- Logic: Handle Save ---
+  const handleSave = async (articleId: string) => {
+    try {
+        const newSaved = new Set(savedArticles);
+        if (newSaved.has(articleId)) {
+            newSaved.delete(articleId);
+            // Optional: Call API to unsave
+            // await fetch('/api/user/saved-articles', { method: 'DELETE', body: JSON.stringify({ id: articleId }) });
+        } else {
+            newSaved.add(articleId);
+            // Optional: Call API to save
+            // await fetch('/api/user/saved-articles', { method: 'POST', body: JSON.stringify({ id: articleId }) });
+        }
+        setSavedArticles(newSaved);
+    } catch (error) {
+        console.error("Failed to toggle save", error);
     }
+  };
+
+  // --- Logic: Derived Metrics ---
+
+  // Calculate total sentiment volume
+  const positive = analytics?.sentiments?.POSITIVE || 0;
+  const negative = analytics?.sentiments?.NEGATIVE || 0;
+  const neutral = analytics?.sentiments?.NEUTRAL || 0;
+  const totalSentiment = positive + negative + neutral;
+
+  // Calculate % of news that is positive
+  const bullishPct = totalSentiment > 0 
+    ? Math.round((positive / totalSentiment) * 100) 
+    : 0;
+
+  // Determine Label & Color based on percentage
+  let sentimentLabel = "Neutral";
+  let sentimentColor = "text-blue-500";
+  let sentimentBg = "bg-gradient-to-br from-blue-500/5 to-blue-500/10 border-blue-500/20";
+  let sentimentIconColor = "text-blue-500";
+
+  if (bullishPct >= 60) {
+    sentimentLabel = "Bullish";
+    sentimentColor = "text-green-500";
+    sentimentBg = "bg-gradient-to-br from-green-500/5 to-green-500/10 border-green-500/20";
+    sentimentIconColor = "text-green-500";
+  } else if (bullishPct <= 40 && totalSentiment > 0) {
+    sentimentLabel = "Bearish";
+    sentimentColor = "text-red-500";
+    sentimentBg = "bg-gradient-to-br from-red-500/5 to-red-500/10 border-red-500/20";
+    sentimentIconColor = "text-red-500";
+  }
+
+  // Simulate "Fear & Greed" index based on news sentiment
+  const fearGreedValue = totalSentiment > 0 
+    ? Math.round(((positive - negative + totalSentiment) / (2 * totalSentiment)) * 100)
+    : 50;
+    
+  let fearGreedLabel = "Neutral";
+  if (fearGreedValue > 75) fearGreedLabel = "Extreme Greed";
+  else if (fearGreedValue > 55) fearGreedLabel = "Greed";
+  else if (fearGreedValue < 25) fearGreedLabel = "Extreme Fear";
+  else if (fearGreedValue < 45) fearGreedLabel = "Fear";
+
+  // --- Helpers ---
+
+  const getRatingColor = (rating: string) => {
+    const r = rating.toUpperCase();
+    if (r === 'POSITIVE' || r === 'BULLISH' || r === 'OVERWEIGHT') {
+        return "bg-green-500/10 text-green-600 hover:bg-green-500/20";
+    }
+    if (r === 'NEGATIVE' || r === 'BEARISH' || r === 'UNDERWEIGHT') {
+        return "bg-red-500/10 text-red-600 hover:bg-red-500/20";
+    }
+    return "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20";
   }
 
   const getSignalColor = (signal: string) => {
     switch (signal.toLowerCase()) {
-      case "bullish":
-        return "text-green-500"
-      case "bearish":
-        return "text-red-500"
-      default:
-        return "text-blue-500"
+      case "bullish": return "text-green-500";
+      case "bearish": return "text-red-500";
+      default: return "text-blue-500";
     }
   }
 
   return (
     <div className="flex-1 space-y-6 p-6">
-      {/* Market Sentiment Overview */}
+      
+      {/* --- Top Cards: Dynamic Sentiment Overview --- */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="bg-gradient-to-br from-green-500/5 to-green-500/10 border-green-500/20">
+        
+        {/* 1. Market Sentiment */}
+        <Card className={sentimentBg}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Market Sentiment</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-500" />
+            <TrendingUp className={`h-4 w-4 ${sentimentIconColor}`} />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-500">Bullish</div>
-            <p className="text-xs text-muted-foreground">68% of analysts positive</p>
+            <div className={`text-2xl font-bold ${sentimentColor}`}>
+              {loading ? "..." : sentimentLabel}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {loading ? "Analyzing..." : `${bullishPct}% positive news volume`}
+            </p>
           </CardContent>
         </Card>
+
+        {/* 2. Fear & Greed (Simulated) */}
         <Card className="bg-gradient-to-br from-blue-500/5 to-blue-500/10 border-blue-500/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Fear & Greed Index</CardTitle>
+            <CardTitle className="text-sm font-medium">News Index</CardTitle>
             <Target className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-500">62</div>
-            <p className="text-xs text-muted-foreground">Greed territory</p>
+            <div className="text-2xl font-bold text-blue-500">
+              {loading ? "..." : fearGreedValue}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {loading ? "Calculating..." : fearGreedLabel}
+            </p>
           </CardContent>
         </Card>
+
+        {/* 3. VIX (Static - needs external API) */}
         <Card className="bg-gradient-to-br from-yellow-500/5 to-yellow-500/10 border-yellow-500/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">VIX Level</CardTitle>
@@ -171,17 +242,23 @@ export default function MarketAnalysis() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-500">18.4</div>
-            <p className="text-xs text-muted-foreground">Low volatility</p>
+            <p className="text-xs text-muted-foreground">Low volatility (Est)</p>
           </CardContent>
         </Card>
+
+        {/* 4. Analyst Consensus (Based on report count) */}
         <Card className="bg-gradient-to-br from-purple-500/5 to-purple-500/10 border-purple-500/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Analyst Consensus</CardTitle>
             <Star className="h-4 w-4 text-purple-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-500">4.2/5</div>
-            <p className="text-xs text-muted-foreground">Strong buy rating</p>
+            <div className="text-2xl font-bold text-purple-500">
+              {loading ? "..." : reports.length > 0 ? "Active" : "Quiet"}
+            </div>
+            <p className="text-xs text-muted-foreground">
+               {reports.length} Recent reports
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -194,67 +271,74 @@ export default function MarketAnalysis() {
           <TabsTrigger value="risks">Risk Assessment</TabsTrigger>
         </TabsList>
 
+        {/* --- Tab 1: Analyst Reports (Dynamic from API) --- */}
         <TabsContent value="reports" className="space-y-6">
           <div className="space-y-6">
-            {marketAnalysis.map((report) => (
-              <Card key={report.id} className="hover:shadow-lg transition-all duration-300">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-4">
-                      <Avatar className="h-12 w-12">
-                        <AvatarImage src={report.avatar || "/placeholder.svg"} alt={report.analyst} />
-                        <AvatarFallback>
-                          {report.analyst
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <CardTitle className="text-lg">{report.title}</CardTitle>
-                        <CardDescription>
-                          {report.analyst} • {report.firm} • {report.publishedAt}
-                        </CardDescription>
-                      </div>
+            {loading ? (
+                <div className="text-center p-10 text-muted-foreground">Loading market reports...</div>
+            ) : reports.length === 0 ? (
+                <div className="text-center p-10 text-muted-foreground">No recent reports found.</div>
+            ) : (
+                reports.map((report) => (
+                <Card key={report.id} className="hover:shadow-lg transition-all duration-300">
+                    <CardHeader>
+                    <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-4">
+                        <Avatar className="h-12 w-12">
+                            {/* Use Source Name for avatar initials fallback */}
+                            <AvatarFallback>
+                                {report.sourceName?.slice(0, 2).toUpperCase() || "AN"}
+                            </AvatarFallback>
+                        </Avatar>
+                        <div>
+                            <CardTitle className="text-lg line-clamp-1">{report.title}</CardTitle>
+                            <CardDescription>
+                            {report.author || "Market Analyst"} • {report.sourceName || "Source"} • {new Date(report.publishedAt).toLocaleDateString()}
+                            </CardDescription>
+                        </div>
+                        </div>
+                        <Badge variant="secondary" className={getRatingColor(report.sentiment)}>
+                        {report.sentiment}
+                        </Badge>
                     </div>
-                    <Badge variant="secondary" className={getRatingColor(report.rating)}>
-                      {report.rating}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-muted-foreground">{report.summary}</p>
-                  <div>
-                    <h4 className="font-semibold mb-2 flex items-center gap-2">
-                      <Lightbulb className="h-4 w-4 text-primary" />
-                      Key Points
-                    </h4>
-                    <ul className="space-y-1">
-                      {report.keyPoints.map((point, index) => (
-                        <li key={index} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <span className="w-1 h-1 bg-primary rounded-full mt-2 flex-shrink-0" />
-                          {point}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="flex items-center justify-between pt-4 border-t">
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm">
-                        <ThumbsUp className="h-4 w-4 mr-1" />
-                        {report.likes}
-                      </Button>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                    <p className="text-muted-foreground line-clamp-3">{report.description}</p>
+                    
+                    <div className="flex items-center justify-between pt-4 border-t">
+                        <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm">
+                            <ThumbsUp className="h-4 w-4 mr-1" />
+                            {/* Randomize likes or use DB field if added later */}
+                            {Math.floor(Math.random() * 50) + 10} 
+                        </Button>
+                        {/* Save Button Added Here */}
+                        <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleSave(report.id)}
+                            className={savedArticles.has(report.id) ? "text-primary" : "text-muted-foreground"}
+                        >
+                            <Bookmark className={`h-4 w-4 mr-1 ${savedArticles.has(report.id) ? "fill-current" : ""}`} />
+                            {savedArticles.has(report.id) ? "Saved" : "Save"}
+                        </Button>
+                        </div>
+                        <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => window.open(report.url, '_blank')}
+                        >
+                        Read Full Report
+                        </Button>
                     </div>
-                    <Button variant="outline" size="sm">
-                      Read Full Report
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    </CardContent>
+                </Card>
+                ))
+            )}
           </div>
         </TabsContent>
 
+        {/* --- Tab 2: Sector Analysis (Static Mock) --- */}
         <TabsContent value="sectors" className="space-y-6">
           <Card>
             <CardHeader>
@@ -289,6 +373,7 @@ export default function MarketAnalysis() {
           </Card>
         </TabsContent>
 
+        {/* --- Tab 3: Technical Analysis (Static Mock) --- */}
         <TabsContent value="technical" className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -343,6 +428,7 @@ export default function MarketAnalysis() {
           </div>
         </TabsContent>
 
+        {/* --- Tab 4: Risks (Static Mock) --- */}
         <TabsContent value="risks" className="space-y-6">
           <Card>
             <CardHeader>
