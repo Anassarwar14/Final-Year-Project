@@ -54,7 +54,7 @@ export default function ForgotPasswordPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <Button asChild className="w-full">
-                <Link href="/login">Back to Login</Link>
+                <Link href="/sign-in">Back to Login</Link>
               </Button>
               <p className="text-sm text-muted-foreground">
                 Didn't receive an email?{" "}
