@@ -106,8 +106,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <Wallet className="h-4 w-4" />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-semibold">FinanceAI</span>
-            <span className="truncate text-xs text-muted-foreground">Pro Platform</span>
+            <span className="truncate font-semibold">WealthFlow</span>
+            <span className="truncate text-xs text-muted-foreground">Finance Platform</span>
           </div>
         </div>
       </SidebarHeader>

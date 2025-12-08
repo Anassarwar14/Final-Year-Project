@@ -49,6 +49,38 @@
   --sidebar-accent-foreground: #18180c;
   --sidebar-border: #d6d6b8;
   --sidebar-ring: #6d6d27;
+
+  /* Financial App Specific Colors */
+  --color-positive: #10b981;     /* Green for gains */
+  --color-negative: #ef4444;     /* Red for losses */
+  --color-neutral-emphasis: #6d6d27;
+
+  /* Spacing Scale */
+  --space-xs: 0.25rem;   /* 4px */
+  --space-sm: 0.5rem;    /* 8px */
+  --space-md: 1rem;      /* 16px */
+  --space-lg: 1.5rem;    /* 24px */
+  --space-xl: 2rem;      /* 32px */
+  --space-2xl: 3rem;     /* 48px */
+
+  /* Border Radius Scale */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Animation Durations */
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
 }
 
 .dark {
@@ -94,6 +126,11 @@
   --sidebar-accent-foreground: #0a0a05;
   --sidebar-border: #2a2a15;
   --sidebar-ring: #d8d892;
+
+  /* Financial App Specific Colors (Dark Mode) */
+  --color-positive: #22c55e;
+  --color-negative: #ef4444;
+  --color-neutral-emphasis: #d8d892;
 }
 
 
@@ -163,3 +200,108 @@
   border-radius: var(--radius-md);
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
 }
+
+/* Financial color utilities */
+.text-positive {
+  color: var(--color-positive);
+}
+
+.text-negative {
+  color: var(--color-negative);
+}
+
+.bg-positive {
+  background-color: var(--color-positive);
+}
+
+.bg-negative {
+  background-color: var(--color-negative);
+}
+
+.hover\:bg-positive\/90:hover {
+  background-color: rgb(16 185 129 / 0.9);
+}
+
+.hover\:bg-negative\/90:hover {
+  background-color: rgb(239 68 68 / 0.9);
+}
+
+.border-positive {
+  border-color: var(--color-positive);
+}
+
+.border-negative {
+  border-color: var(--color-negative);
+}
+
+.border-positive\/30 {
+  border-color: rgb(16 185 129 / 0.3);
+}
+
+.border-negative\/30 {
+  border-color: rgb(239 68 68 / 0.3);
+}
+
+.bg-positive\/10 {
+  background-color: rgb(16 185 129 / 0.1);
+}
+
+.bg-positive\/5 {
+  background-color: rgb(16 185 129 / 0.05);
+}
+
+/* Smooth animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-in {
+  animation: fade-in 0.5s ease-out;
+}
+
+.zoom-in {
+  animation: zoom-in 0.3s ease-out;
+}
+
+.fade-in {
+  animation: fade-in 0.5s ease-out;
+}
+
+/* Smooth hover transitions - only apply to interactive elements */
+button, a, [role="button"], .interactive {
+  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Smooth layout transitions */
+.smooth-transition {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Card hover effects */
+.card-hover {
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.card-hover:hover {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
