@@ -150,7 +150,7 @@ export function ChatInterface() {
               <div className={`flex flex-col gap-2 max-w-[80%] ${message.sender === "user" ? "items-end" : ""}`}>
                 <Card className={`${message.sender === "user" ? "bg-primary text-primary-foreground" : "bg-card"}`}>
                   <CardContent className="p-4">
-                    <p className="text-sm leading-relaxed">{message.content}</p>
+                    <p className="text-sm leading-relaxed text-pretty">{message.content}</p>
 
                     {/* Enhanced AI Response Types */}
                     {message.type === "analysis" && message.data && (
@@ -301,7 +301,7 @@ export function ChatInterface() {
               </Button>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-2 text-center">
+          <p className="text-xs text-muted-foreground/70 mt-2 text-center">
             AI responses are for informational purposes only and should not be considered as financial advice.
           </p>
         </div>
