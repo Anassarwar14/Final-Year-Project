@@ -1,6 +1,6 @@
 
 "use client"
-
+import { useCurrentUser } from "@/hooks/use-current-user"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -68,33 +68,35 @@ const quickActions = [
     title: "AI Financial Advisor",
     description: "Get personalized investment advice",
     icon: Bot,
-    href: "/chat",
+    href: "dashboard/chat",
     badge: "New",
   },
   {
     title: "Learning Hub",
     description: "Expand your financial knowledge",
     icon: GraduationCap,
-    href: "/learning",
+    href: "dashboard/learning",
     badge: null,
   },
   {
     title: "Trading Simulator",
     description: "Practice trading risk-free",
     icon: GameController2,
-    href: "/simulator",
+    href: "dashboard/simulator",
     badge: "Practice",
   },
   {
     title: "Market News",
     description: "Stay updated with latest trends",
     icon: Newspaper,
-    href: "/news",
+    href: "dashboard/news",
     badge: null,
   },
 ]
 
 export default function HomePage() {
+  const { user, isPending } = useCurrentUser()
+  const username = user?.name || "User"
   return (
     <>
       <SidebarInset>
@@ -119,7 +121,9 @@ export default function HomePage() {
           <div className="rounded-xl bg-gradient-to-r from-primary/10 via-primary/5 to-accent/10 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-balance">Welcome back, Alex!</h2>
+                <h2 className="text-2xl font-bold text-balance">
+  Welcome back, {username}!
+</h2>
                 <p className="text-muted-foreground mt-1">
                   Your portfolio is performing well. Here's your financial overview.
                 </p>

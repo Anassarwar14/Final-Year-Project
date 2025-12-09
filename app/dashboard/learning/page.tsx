@@ -1,5 +1,5 @@
 "use client"
-
+import { useCurrentUser } from "@/hooks/use-current-user"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -110,6 +110,8 @@ const achievements = [
 ]
 
 export default function LearningPage() {
+   const { user, isPending } = useCurrentUser()
+   const username = user?.name || "User"
   return (
     <>
       <SidebarInset>
@@ -139,7 +141,9 @@ export default function LearningPage() {
           <div className="rounded-xl bg-gradient-to-r from-primary/10 via-primary/5 to-accent/10 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-balance">Welcome back, Alex!</h2>
+                <h2 className="text-2xl font-bold text-balance">
+  Welcome back, {username}!
+</h2>
                 <p className="text-muted-foreground mt-1">
                   You're making great progress. Keep learning to master your financial future.
                 </p>
