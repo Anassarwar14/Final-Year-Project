@@ -47,11 +47,32 @@ export function SECFilings({ symbol }: SECFilingsProps) {
 
   const filings = data?.filings || [];
   
-  // Filter for important forms
-  const importantForms = ['10-K', '10-Q', '8-K', '4', 'DEF 14A'];
-  const filtered = filings.filter((f: any) => 
-    importantForms.includes(f.form)
-  ).slice(0, 8);
+  // Prioritize forms by importance
+  const formPriority: { [key: string]: number } = {
+    '10-K': 1,  // Annual report
+    '10-Q': 2,  // Quarterly report
+    '8-K': 3,   // Current events
+    'DEF 14A': 4, // Proxy statement
+    '4': 5,     // Insider trading
+    'S-1': 6,   // IPO registration
+    'S-3': 7,   // Shelf registration
+    '10-K/A': 8, // Amended annual
+    '10-Q/A': 9, // Amended quarterly
+  };
+  
+  const importantForms = Object.keys(formPriority);
+  
+  // Filter and sort by priority
+  const filtered = filings
+    .filter((f: any) => importantForms.includes(f.form))
+    .sort((a: any, b: any) => {
+      const priorityA = formPriority[a.form] || 999;
+      const priorityB = formPriority[b.form] || 999;
+      if (priorityA !== priorityB) return priorityA - priorityB;
+      // If same priority, sort by date (newest first)
+      return new Date(b.filedDate).getTime() - new Date(a.filedDate).getTime();
+    })
+    .slice(0, 15);
 
   return (
     <Card>
@@ -70,7 +91,7 @@ export function SECFilings({ symbol }: SECFilingsProps) {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
             {filtered.map((filing: any, index: number) => (
               <a
                 key={index}
@@ -81,8 +102,13 @@ export function SECFilings({ symbol }: SECFilingsProps) {
               >
                 <div className="flex items-center gap-3">
                   <Badge 
-                    variant={filing.form === '10-K' ? 'default' : 'secondary'}
-                    className="font-mono text-xs"
+                    variant={
+                      filing.form === '10-K' ? 'default' : 
+                      filing.form === '10-Q' ? 'secondary' : 
+                      filing.form === '8-K' ? 'outline' : 
+                      'secondary'
+                    }
+                    className="font-mono text-xs min-w-[60px] justify-center"
                   >
                     {filing.form}
                   </Badge>
@@ -100,7 +126,7 @@ export function SECFilings({ symbol }: SECFilingsProps) {
           </div>
         )}
         <p className="text-xs text-muted-foreground mt-4">
-          Showing {importantForms.join(', ')} forms from the last year
+          Showing key filings (10-K, 10-Q, 8-K, etc.) sorted by importance
         </p>
       </CardContent>
     </Card>

@@ -391,14 +391,18 @@ export const tradingController = {
       const user = c.get("user");
       
       if (!user) {
+        console.error("Process pending orders: No user in context");
         return c.json({ error: "Unauthorized" }, 401);
       }
 
+      console.log(`Processing pending orders for user: ${user.id}`);
       const result = await tradingService.processPendingOrders(user.id);
+      console.log(`Process result:`, result);
       return c.json(result);
     } catch (error: any) {
       console.error("Error processing pending orders:", error);
-      return c.json({ error: "Failed to process pending orders" }, 500);
+      console.error("Error stack:", error.stack);
+      return c.json({ error: error.message || "Failed to process pending orders" }, 500);
     }
   },
 

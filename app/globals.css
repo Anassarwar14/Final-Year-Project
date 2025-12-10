@@ -4,6 +4,26 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Premium Font Configuration */
+@layer base {
+  :root {
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+  
+  .font-mono {
+    font-family: var(--font-mono), monospace;
+  }
+  
+  .font-heading {
+    font-family: var(--font-lexend), system-ui, sans-serif;
+  }
+  
+  .font-numeric {
+    font-family: var(--font-mono), monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 :root {
   --text: #18180c;          /* Deep earthy text */
   --background: #fafaf4;    /* Light ivory parchment */

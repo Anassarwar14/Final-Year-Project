@@ -16,6 +16,7 @@ import { VscPieChart } from "react-icons/vsc";
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from "@/components/ui/sidebar"
+import Image from "next/image";
 
 // Mock user data
 const user = {
@@ -101,11 +102,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-4 py-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Wallet className="h-4 w-4" />
+          <div className="flex items-center gap-3 px-2 py-2 group-data-[collapsible=icon]:gap-1 group-data-[collapsible=icon]:px-0.5">
+            <div className="flex aspect-square h-12 w-12 min-h-12 min-w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 overflow-hidden transition-all duration-200 group-data-[collapsible=icon]:h-9 group-data-[collapsible=icon]:w-9 group-data-[collapsible=icon]:min-h-9 group-data-[collapsible=icon]:min-w-9 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:translate-x-[-6px]">
+            <Image 
+              src="/favicon.ico" 
+              alt="WealthFlow Logo" 
+              width={32} 
+              height={32}
+                className="h-8 w-8 object-contain group-data-[collapsible=icon]:h-6 group-data-[collapsible=icon]:w-6"
+            />
           </div>
-          <div className="grid flex-1 text-left text-sm leading-tight">
+          <div className="grid flex-1 text-left text-sm leading-tight overflow-hidden transition-all duration-200 group-data-[collapsible=icon]:w-0 group-data-[collapsible=icon]:opacity-0">
             <span className="truncate font-semibold">WealthFlow</span>
             <span className="truncate text-xs text-muted-foreground">Finance Platform</span>
           </div>

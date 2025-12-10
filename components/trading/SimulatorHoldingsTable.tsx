@@ -2,18 +2,17 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TrendingUp, TrendingDown } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
-interface HoldingsTableProps {
+interface SimulatorHoldingsTableProps {
   holdings: Array<{
     id: string;
     quantity: number;
-    averagePrice?: number;
-    averageBuyPrice?: number;
+    averageBuyPrice: number;
     currentPrice: number;
     totalValue?: number;
-    value?: number;
     unrealizedPnL: number;
     unrealizedPnLPercent: number;
     asset: {
@@ -25,17 +24,20 @@ interface HoldingsTableProps {
   onTradeClick?: (symbol: string) => void;
 }
 
-export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
+export function SimulatorHoldingsTable({ holdings, onTradeClick }: SimulatorHoldingsTableProps) {
   if (holdings.length === 0) {
     return (
-      <Card className="border-primary/20 bg-primary/5">
+      <Card className="border-amber-500/20 bg-amber-500/5">
         <CardHeader>
-          <CardTitle>Real Portfolio Holdings</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5 text-amber-500" />
+            Simulator Holdings
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-12 text-muted-foreground">
-            <p className="mb-2">No holdings yet</p>
-            <p className="text-sm">Start trading to build your portfolio</p>
+            <p className="mb-2">No positions yet</p>
+            <p className="text-sm">Make your first trade to start building your portfolio</p>
           </div>
         </CardContent>
       </Card>
@@ -43,9 +45,17 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
   }
 
   return (
-    <Card className="border-primary/20 bg-primary/5">
+    <Card className="border-amber-500/20 bg-amber-500/5">
       <CardHeader>
-        <CardTitle>Real Portfolio Holdings ({holdings.length})</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5 text-amber-500" />
+            Simulator Holdings ({holdings.length})
+          </CardTitle>
+          <Badge variant="outline" className="border-amber-500/50 text-amber-600 dark:text-amber-400">
+            Practice Mode
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent>
         <Table>
@@ -53,30 +63,28 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
             <TableRow>
               <TableHead>Asset</TableHead>
               <TableHead className="text-right">Shares</TableHead>
-              <TableHead className="text-right">Avg Price</TableHead>
+              <TableHead className="text-right">Avg Cost</TableHead>
               <TableHead className="text-right">Current Price</TableHead>
               <TableHead className="text-right">Total Value</TableHead>
-              <TableHead className="text-right">P&L</TableHead>
+              <TableHead className="text-right">Unrealized P&L</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {holdings.map((holding) => {
-              // Convert to number if it's a Decimal object or handle null
-              const avgPrice = holding.averagePrice ?? holding.averageBuyPrice ?? 0;
-              const totalVal = holding.totalValue ?? holding.value ?? 0;
-              
-              const avgPriceNum = typeof avgPrice === 'number' ? avgPrice : Number(avgPrice);
-              const totalValNum = typeof totalVal === 'number' ? totalVal : Number(totalVal);
-              const currentPriceNum = typeof holding.currentPrice === 'number' ? holding.currentPrice : Number(holding.currentPrice);
+              // Convert Decimal types to numbers
               const quantityNum = typeof holding.quantity === 'number' ? holding.quantity : Number(holding.quantity);
+              const avgBuyPriceNum = typeof holding.averageBuyPrice === 'number' ? holding.averageBuyPrice : Number(holding.averageBuyPrice);
+              const currentPriceNum = typeof holding.currentPrice === 'number' ? holding.currentPrice : Number(holding.currentPrice);
               const unrealizedPnLNum = holding.unrealizedPnL ? (typeof holding.unrealizedPnL === 'number' ? holding.unrealizedPnL : Number(holding.unrealizedPnL)) : 0;
               const unrealizedPnLPercentNum = holding.unrealizedPnLPercent ? (typeof holding.unrealizedPnLPercent === 'number' ? holding.unrealizedPnLPercent : Number(holding.unrealizedPnLPercent)) : 0;
               
               const isPositive = unrealizedPnLNum >= 0;
+              // Calculate totalValue if not provided
+              const totalValue = holding.totalValue ?? (currentPriceNum * quantityNum);
               
               return (
-                <TableRow key={holding.id}>
+                <TableRow key={holding.id} className="hover:bg-amber-500/5">
                   <TableCell>
                     <div className="flex items-center gap-3">
                       {holding.asset.logoUrl && (
@@ -96,12 +104,12 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
                     </div>
                   </TableCell>
                   <TableCell className="text-right font-medium">{quantityNum}</TableCell>
-                  <TableCell className="text-right">${avgPriceNum.toFixed(2)}</TableCell>
+                  <TableCell className="text-right">${avgBuyPriceNum.toFixed(2)}</TableCell>
                   <TableCell className="text-right font-medium">
                     ${currentPriceNum.toFixed(2)}
                   </TableCell>
                   <TableCell className="text-right font-semibold">
-                    ${totalValNum.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className={`flex flex-col items-end ${isPositive ? "text-positive" : "text-negative"}`}>
@@ -112,7 +120,7 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
                           <TrendingDown className="h-3 w-3" />
                         )}
                         <span>
-                          {isPositive ? "+" : ""}${unrealizedPnLNum.toFixed(2)}
+                          {isPositive ? "+" : ""}${Math.abs(unrealizedPnLNum).toFixed(2)}
                         </span>
                       </div>
                       <span className="text-xs">
@@ -126,6 +134,7 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
                         variant="outline"
                         size="sm"
                         onClick={() => onTradeClick(holding.asset.symbol)}
+                        className="border-amber-500/30 hover:bg-amber-500/10"
                       >
                         Trade
                       </Button>
