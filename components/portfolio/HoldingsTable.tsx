@@ -41,6 +41,7 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
   }
 
   return (
+    console.log(holdings),
     <Card>
       <CardHeader>
         <CardTitle>Holdings ({holdings.length})</CardTitle>
@@ -82,12 +83,12 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
                     </div>
                   </TableCell>
                   <TableCell className="text-right font-medium">{holding.quantity}</TableCell>
-                  <TableCell className="text-right">${holding.averagePrice.toFixed(2)}</TableCell>
+                  <TableCell className="text-right"> ${ (holding.averagePrice ?? 0).toFixed(2) }</TableCell>
                   <TableCell className="text-right font-medium">
-                    ${holding.currentPrice.toFixed(2)}
+                    ${ (holding.currentPrice ?? 0).toFixed(2) }
                   </TableCell>
                   <TableCell className="text-right font-semibold">
-                    ${holding.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    ${ (holding.totalValue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) }
                   </TableCell>
                   <TableCell className="text-right">
                     <div className={`flex flex-col items-end ${isPositive ? "text-positive" : "text-negative"}`}>
@@ -98,11 +99,11 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
                           <TrendingDown className="h-3 w-3" />
                         )}
                         <span>
-                          {isPositive ? "+" : ""}${holding.unrealizedPnL.toFixed(2)}
+                          {isPositive ? "+" : ""}${ (holding.unrealizedPnL ?? 0).toFixed(2) }
                         </span>
                       </div>
                       <span className="text-xs">
-                        {isPositive ? "+" : ""}{holding.unrealizedPnLPercent.toFixed(2)}%
+                        {isPositive ? "+" : ""}{ (holding.unrealizedPnLPercent ?? 0).toFixed(2) }%
                       </span>
                     </div>
                   </TableCell>

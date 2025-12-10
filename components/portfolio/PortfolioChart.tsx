@@ -129,3 +129,4 @@ export function PortfolioChart({ snapshots, startValue, currentValue }: Portfoli
     </Card>
   );
 }
+
