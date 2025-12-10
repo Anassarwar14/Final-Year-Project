@@ -58,10 +58,15 @@ export default function PortfolioPage() {
   return (
     <div className="flex-1 space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between border-b border-primary/20 pb-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Portfolio</h1>
-          <p className="text-muted-foreground">Track your investments and performance</p>
+          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            Real Portfolio
+            <span className="text-sm font-normal px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/30">
+              Live Trading
+            </span>
+          </h1>
+          <p className="text-muted-foreground mt-1">Track your real-world investments and performance</p>
         </div>
         <Button onClick={handleRefresh} variant="outline" disabled={refreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
@@ -71,9 +76,9 @@ export default function PortfolioPage() {
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
+        <Card className="border-primary/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Portfolio Value</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -84,9 +89,9 @@ export default function PortfolioPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-primary/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Cash Balance</CardTitle>
+            <CardTitle className="text-sm font-medium">Available Cash</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -99,9 +104,9 @@ export default function PortfolioPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-primary/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Invested</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Invested</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -116,7 +121,7 @@ export default function PortfolioPage() {
 
         <Card className={totalPnL >= 0 ? "border-positive/30" : "border-negative/30"}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total P&L</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Unrealized P&L</CardTitle>
             {totalPnL >= 0 ? (
               <TrendingUp className="h-4 w-4 text-positive" />
             ) : (
@@ -136,11 +141,13 @@ export default function PortfolioPage() {
 
       {/* Charts */}
       <div className="grid gap-6 md:grid-cols-3">
-        <PortfolioChart
-          snapshots={snapshots}
-          startValue={performanceData?.startValue || totalValue}
-          currentValue={performanceData?.currentValue || totalValue}
-        />
+        <div className="md:col-span-2">
+          <PortfolioChart
+            snapshots={snapshots}
+            startValue={performanceData?.startValue || totalValue}
+            currentValue={performanceData?.currentValue || totalValue}
+          />
+        </div>
         <SectorAllocation allocation={analytics?.sectorAllocation || {}} />
       </div>
 

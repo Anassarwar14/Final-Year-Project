@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/db";
 import { marketDataService } from "../../services/marketDataService";
+import { alphaVantageService } from "../../services/alphaVantageService";
 import { Decimal } from "@prisma/client/runtime/library";
 
 export const tradingService = {
@@ -451,7 +452,7 @@ export const tradingService = {
     const profile = await prisma.simulatorProfile.findUnique({
       where: { userId },
       include: {
-        simulatorTransactions: {
+        transactions: {
           where: { pending: true },
           include: { asset: true },
           orderBy: { createdAt: 'asc' },
@@ -459,7 +460,7 @@ export const tradingService = {
       },
     });
 
-    if (!profile || !profile.simulatorTransactions.length) {
+    if (!profile || !profile.transactions.length) {
       return { processed: 0, failed: 0, results: [] };
     }
 
@@ -467,15 +468,30 @@ export const tradingService = {
     let processed = 0;
     let failed = 0;
 
-    for (const pendingOrder of profile.simulatorTransactions) {
+    for (const pendingOrder of profile.transactions) {
       try {
-        // Execute the pending order (with market open = true)
+        // Fetch current market price
+        let quote = await alphaVantageService.getRealtimeQuote(pendingOrder.asset.symbol);
+        
+        // Fallback to Finnhub if Alpha Vantage fails
+        if (!quote || !quote.c) {
+          quote = await marketDataService.getRealtimeQuote(pendingOrder.asset.symbol);
+        }
+        
+        if (!quote || !quote.c) {
+          throw new Error(`Unable to fetch current price for ${pendingOrder.asset.symbol}`);
+        }
+
+        const currentPrice = quote.c;
+        console.log(`Processing pending order: ${pendingOrder.type} ${pendingOrder.quantity} ${pendingOrder.asset.symbol} at $${currentPrice}`);
+
+        // Execute the pending order with CURRENT market price
         await this.executeTrade(
           userId,
           pendingOrder.assetId,
           pendingOrder.type,
           parseFloat(pendingOrder.quantity.toString()),
-          parseFloat(pendingOrder.pricePerUnit.toString()),
+          currentPrice, // Use current price, not stale price
           true // Market is open
         );
 
@@ -489,9 +505,11 @@ export const tradingService = {
           symbol: pendingOrder.asset.symbol,
           type: pendingOrder.type,
           quantity: parseFloat(pendingOrder.quantity.toString()),
+          price: currentPrice,
           status: 'success',
         });
       } catch (error: any) {
+        console.error(`Failed to process pending order for ${pendingOrder.asset.symbol}:`, error.message);
         failed++;
         results.push({
           symbol: pendingOrder.asset.symbol,

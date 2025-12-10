@@ -139,9 +139,11 @@ interface HoldingsTableProps {
   holdings: Array<{
     id: string;
     quantity: number;
-    averagePrice: number;
+    averagePrice?: number;
+    averageBuyPrice?: number;
     currentPrice: number;
-    totalValue: number;
+    totalValue?: number;
+    value?: number;
     unrealizedPnL: number;
     unrealizedPnLPercent: number;
     asset: {
@@ -156,9 +158,9 @@ interface HoldingsTableProps {
 export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
   if (holdings.length === 0) {
     return (
-      <Card>
+      <Card className="border-primary/20 bg-primary/5">
         <CardHeader>
-          <CardTitle>Holdings</CardTitle>
+          <CardTitle>Real Portfolio Holdings</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-12 text-muted-foreground">
@@ -171,10 +173,9 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
   }
 
   return (
-    console.log(holdings),
-    <Card>
+    <Card className="border-primary/20 bg-primary/5">
       <CardHeader>
-        <CardTitle>Holdings ({holdings.length})</CardTitle>
+        <CardTitle>Real Portfolio Holdings ({holdings.length})</CardTitle>
       </CardHeader>
       <CardContent>
         <Table>
@@ -191,7 +192,19 @@ export function HoldingsTable({ holdings, onTradeClick }: HoldingsTableProps) {
           </TableHeader>
           <TableBody>
             {holdings.map((holding) => {
-              const isPositive = holding.unrealizedPnL >= 0;
+              // Convert to number if it's a Decimal object or handle null
+              const avgPrice = holding.averagePrice ?? holding.averageBuyPrice ?? 0;
+              const totalVal = holding.totalValue ?? holding.value ?? 0;
+              
+              const avgPriceNum = typeof avgPrice === 'number' ? avgPrice : Number(avgPrice);
+              const totalValNum = typeof totalVal === 'number' ? totalVal : Number(totalVal);
+              const currentPriceNum = typeof holding.currentPrice === 'number' ? holding.currentPrice : Number(holding.currentPrice);
+              const quantityNum = typeof holding.quantity === 'number' ? holding.quantity : Number(holding.quantity);
+              const unrealizedPnLNum = holding.unrealizedPnL ? (typeof holding.unrealizedPnL === 'number' ? holding.unrealizedPnL : Number(holding.unrealizedPnL)) : 0;
+              const unrealizedPnLPercentNum = holding.unrealizedPnLPercent ? (typeof holding.unrealizedPnLPercent === 'number' ? holding.unrealizedPnLPercent : Number(holding.unrealizedPnLPercent)) : 0;
+              
+              const isPositive = unrealizedPnLNum >= 0;
+              
               return (
                 <TableRow key={holding.id}>
                   <TableCell>

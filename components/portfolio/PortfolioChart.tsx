@@ -43,11 +43,11 @@ export function PortfolioChart({ snapshots, startValue, currentValue }: Portfoli
   const isPositive = totalReturn >= 0;
 
   return (
-    <Card className="col-span-2">
+    <Card className="col-span-2 border-primary/20 bg-primary/5">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Portfolio Performance</CardTitle>
+            <CardTitle>Real Portfolio Performance</CardTitle>
             <CardDescription>Total value over time</CardDescription>
           </div>
           <div className="text-right">

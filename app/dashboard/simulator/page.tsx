@@ -5,14 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TrendingUp, TrendingDown, DollarSign, Activity, Search, BarChart3, Building2 } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Area, Bar } from "recharts";
 import { TradingChart } from "@/components/trading/TradingChart";
 import { OrderPanel } from "@/components/trading/OrderPanel";
 import { StockSearchCommand } from "@/components/trading/StockSearchCommand";
 import { AnalystRecommendations } from "@/components/trading/AnalystRecommendations";
 import { CompanyInfo } from "@/components/trading/CompanyInfo";
 import { RealtimeQuote } from "@/components/trading/RealtimeQuote";
-import { HoldingsList } from "@/components/trading/HoldingsList";
+import { SimulatorHoldingsTable } from "@/components/trading/SimulatorHoldingsTable";
 import { CompanyNews } from "@/components/trading/CompanyNews";
 import { SECFilings } from "@/components/trading/SECFilings";
 import { EarningsInfo } from "@/components/trading/EarningsInfo";
@@ -86,8 +86,9 @@ export default function TradingSimulator() {
   const balance = profile?.virtualBalance || 0;
   const totalValue = profile?.totalValue || 0;
   const holdingsValue = profile?.holdingsValue || 0;
-  const totalPnL = totalValue - 100000;
-  const totalPnLPercent = ((totalValue - 100000) / 100000) * 100;
+  const startingBalance = 100000; // Initial simulator balance
+  const totalPnL = totalValue - startingBalance;
+  const totalPnLPercent = ((totalValue - startingBalance) / startingBalance) * 100;
 
   const handleTradeExecuted = () => {
     mutateProfile();
@@ -117,9 +118,16 @@ export default function TradingSimulator() {
   };
 
   return (
-    <div className="flex-1 space-y-4 p-6">
+    <div className="relative flex-1">
+      {/* Background Pattern */}
+      <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-green-500/10 via-emerald-500/5 to-transparent rounded-full blur-3xl"></div>
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-tr from-amber-500/10 via-yellow-500/5 to-transparent rounded-full blur-3xl"></div>
+        <div className="absolute top-1/2 right-1/4 w-[600px] h-[600px] bg-gradient-to-br from-blue-500/5 via-transparent to-purple-500/5 rounded-full blur-3xl"></div>
+      </div>
+      
       {/* Top Navigation Bar - Investopedia Style */}
-      <div className="bg-card border-b">
+      <div className="bg-card/80 backdrop-blur-sm border-b">
         <Tabs defaultValue="portfolio" className="w-full">
           <div className="flex items-center justify-between border-b px-4">
             <TabsList className="h-14 bg-transparent border-0">
@@ -156,23 +164,46 @@ export default function TradingSimulator() {
 
           {/* PORTFOLIO TAB */}
           <TabsContent value="portfolio" className="m-0 p-6 space-y-6">
+            {/* Simulator Header Badge */}
+            <div className="flex items-center justify-between border-b border-amber-500/20 pb-4">
+              <div>
+                <h2 className="text-3xl font-bold flex items-center gap-3 font-heading">
+                  <span className="bg-gradient-to-r from-amber-600 via-yellow-600 to-amber-500 dark:from-amber-400 dark:via-yellow-400 dark:to-amber-300 bg-clip-text text-transparent">
+                    Trading Simulator
+                  </span>
+                  <span className="text-sm font-normal px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-yellow-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-sans">
+                    Practice Mode
+                  </span>
+                </h2>
+                <p className="text-sm text-muted-foreground mt-2">Learn trading with virtual money - No real capital at risk</p>
+              </div>
+            </div>
+
             {/* Market Status Banner */}
             {!isMarketOpen && (
-              <div className="bg-muted border border-border rounded-lg p-3 text-center">
-                <p className="text-sm text-muted-foreground">
-                  🕒 Market is closed. {marketStatus?.nextOpen && `Opens at ${marketStatus.nextOpen}`}
-                </p>
+              <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 dark:from-amber-950/20 dark:via-orange-950/20 dark:to-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg p-4 text-center shadow-sm">
+                <div className="flex items-center justify-center gap-3">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                  </span>
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                    Market is Closed
+                    {marketStatus?.nextOpen && <span className="mx-2">•</span>}
+                    {marketStatus?.nextOpen && <span className="font-semibold">Opens: {marketStatus.nextOpen}</span>}
+                  </p>
+                </div>
               </div>
             )}
 
             {/* Account Stats */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Card>
+              <Card className="border-amber-500/20 bg-gradient-to-br from-card via-card to-amber-50/30 dark:to-amber-950/10">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Account Value</CardTitle>
+                  <CardTitle className="text-sm font-medium text-muted-foreground font-heading">Virtual Account Value</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                  <div className="text-3xl font-bold font-numeric bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                   <p className="text-xs text-muted-foreground mt-1">
                     {balance < 100 && holdingsValue < 100 ? (
                       <Button
@@ -184,100 +215,134 @@ export default function TradingSimulator() {
                         Reset Portfolio →
                       </Button>
                     ) : (
-                      `+${totalPnLPercent.toFixed(2)}%`
+                      <span className="font-numeric">`Cash: $${balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} + Holdings: $${holdingsValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`</span>
                     )}
                   </p>
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-amber-500/20 bg-gradient-to-br from-card via-card to-green-50/20 dark:to-green-950/10">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Today's Change</CardTitle>
+                  <CardTitle className="text-sm font-medium text-muted-foreground font-heading">Total Profit/Loss</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-2xl font-bold ${totalPnL >= 0 ? "text-positive" : "text-negative"}`}>
+                  <div className={`text-3xl font-bold font-numeric ${
+                    totalPnL >= 0 
+                      ? "bg-gradient-to-r from-green-600 to-emerald-600 dark:from-green-400 dark:to-emerald-400" 
+                      : "bg-gradient-to-r from-red-600 to-rose-600 dark:from-red-400 dark:to-rose-400"
+                  } bg-clip-text text-transparent`}>
                     {totalPnL >= 0 ? "+" : ""}${Math.abs(totalPnL).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </div>
-                  <p className={`text-xs mt-1 ${totalPnL >= 0 ? "text-positive" : "text-negative"}`}>
-                    ({totalPnL >= 0 ? "+" : ""}{totalPnLPercent.toFixed(2)}%)
+                  <p className={`text-xs mt-1 font-numeric ${
+                    totalPnL >= 0 ? "text-positive" : "text-negative"
+                  }`}>
+                    ({totalPnL >= 0 ? "+" : ""}{totalPnLPercent.toFixed(2)}%) Since Start
                   </p>
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-blue-500/20 bg-gradient-to-br from-card via-card to-blue-50/20 dark:to-blue-950/10">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Buying Power</CardTitle>
+                  <CardTitle className="text-sm font-medium text-muted-foreground font-heading">Buying Power</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-                  <p className="text-xs text-muted-foreground mt-1">Cash</p>
+                  <div className="text-3xl font-bold font-numeric bg-gradient-to-r from-blue-600 to-cyan-600 dark:from-blue-400 dark:to-cyan-400 bg-clip-text text-transparent">${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Available Cash</p>
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-purple-500/20 bg-gradient-to-br from-card via-card to-purple-50/20 dark:to-purple-950/10">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Annual Return</CardTitle>
+                  <CardTitle className="text-sm font-medium text-muted-foreground font-heading">Return on Investment</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-2xl font-bold ${totalPnL >= 0 ? "text-positive" : "text-negative"}`}>
+                  <div className={`text-3xl font-bold font-numeric ${
+                    totalPnL >= 0
+                      ? "bg-gradient-to-r from-purple-600 to-pink-600 dark:from-purple-400 dark:to-pink-400"
+                      : "bg-gradient-to-r from-red-600 to-rose-600 dark:from-red-400 dark:to-rose-400"
+                  } bg-clip-text text-transparent`}>
                     {totalPnL >= 0 ? "+" : ""}{totalPnLPercent.toFixed(2)}%
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">YTD</p>
+                  <p className="text-xs text-muted-foreground mt-1">From $100,000 start</p>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Performance Chart and Holdings */}
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Performance History</CardTitle>
-                  <p className="text-sm text-muted-foreground">7 Day Performance</p>
-                </CardHeader>
-                <CardContent>
-                  {performanceData?.snapshots && performanceData.snapshots.length > 0 ? (
-                    <div className="h-[300px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={performanceData.snapshots}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                          <XAxis 
-                            dataKey="createdAt" 
-                            tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            className="text-xs"
-                          />
-                          <YAxis 
-                            tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
-                            className="text-xs"
-                          />
-                          <Tooltip 
-                            formatter={(value: number) => [`$${value.toFixed(2)}`, 'Value']}
-                            labelFormatter={(label) => new Date(label).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey="totalValue" 
-                            stroke="hsl(var(--primary))" 
-                            strokeWidth={2}
-                            dot={false}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ) : (
-                    <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground space-y-2">
-                      <BarChart3 className="h-12 w-12 opacity-20" />
-                      <p className="text-sm">Portfolio performance tracking</p>
-                      <p className="text-xs">Data available after making trades</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+            {/* Performance Chart */}
+            <Card className="border-amber-500/20">
+              <CardHeader>
+                <CardTitle>Performance History</CardTitle>
+                <p className="text-sm text-muted-foreground">7 Day Simulated Performance</p>
+              </CardHeader>
+              <CardContent>
+                {performanceData?.snapshots && performanceData.snapshots.length > 0 ? (
+                  <div className="h-[320px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart
+                        data={performanceData.snapshots.map((s:any, i:number, arr:any[]) => ({
+                          ...s,
+                          date: s.createdAt,
+                          pnl: i === 0 ? 0 : (s.totalValue - arr[i-1].totalValue),
+                        }))}
+                      >
+                        <defs>
+                          <linearGradient id="valueGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
+                            <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis
+                          dataKey="date"
+                          tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          className="text-xs"
+                        />
+                        <YAxis
+                          tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                          className="text-xs"
+                          domain={[('dataMin'), ('dataMax')]}
+                        />
+                        <Tooltip
+                          formatter={(value:any, name:any) => {
+                            if (name === 'totalValue') return [`$${Number(value).toFixed(2)}`, 'Value'];
+                            if (name === 'pnl') return [`$${Number(value).toFixed(2)}`, 'Daily PnL'];
+                            return [value, name];
+                          }}
+                          labelFormatter={(label) => new Date(label as any).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                        />
+                        {/* Area for total value */}
+                        <Area
+                          type="monotone"
+                          dataKey="totalValue"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth={2}
+                          fill="url(#valueGradient)"
+                        />
+                        {/* Bars for daily PnL with conditional color */}
+                        <Bar
+                          dataKey="pnl"
+                          barSize={8}
+                          radius={[4, 4, 0, 0]}
+                          fill="#22c55e"
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground space-y-2">
+                    <BarChart3 className="h-12 w-12 opacity-20" />
+                    <p className="text-sm">Portfolio performance tracking</p>
+                    <p className="text-xs">Data available after making trades</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-              <HoldingsList holdings={holdings} />
-            </div>
+              {/* Holdings Table */}
+              <SimulatorHoldingsTable holdings={holdings} onTradeClick={handleSelectStock} />
 
-            {/* Pending Orders */}
-            <PendingOrders />
+              {/* Pending Orders */}
+              <PendingOrders />
           </TabsContent>
 
           {/* TRADE TAB */}
@@ -285,23 +350,33 @@ export default function TradingSimulator() {
             {/* Market Status Banner - Always Visible */}
             <div className={`${
               isMarketOpen 
-                ? "bg-positive/10 border-positive/20" 
-                : "bg-amber-500/10 border-amber-500/20"
-            } border rounded-lg p-3 flex items-center justify-between`}>
-              <div className="flex items-center gap-2">
-                <div className={`h-2 w-2 rounded-full ${isMarketOpen ? "bg-positive animate-pulse" : "bg-amber-500"}`} />
-                <span className={`text-sm font-medium ${
+                ? "bg-gradient-to-r from-green-50 via-emerald-50 to-green-50 dark:from-green-950/20 dark:via-emerald-950/20 dark:to-green-950/20 border-green-200 dark:border-green-900" 
+                : "bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 dark:from-amber-950/20 dark:via-orange-950/20 dark:to-amber-950/20 border-amber-200 dark:border-amber-900"
+            } border rounded-lg p-4 flex items-center justify-between shadow-sm`}>
+              <div className="flex items-center gap-3">
+                {isMarketOpen ? (
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-positive"></span>
+                  </span>
+                ) : (
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                  </span>
+                )}
+                <span className={`text-sm font-bold bg-gradient-to-r ${
                   isMarketOpen 
-                    ? "text-positive" 
-                    : "text-amber-600 dark:text-amber-400"
-                }`}>
-                  {isMarketOpen ? "Market is OPEN" : "Market is CLOSED"}
+                    ? "from-green-600 to-emerald-600 dark:from-green-400 dark:to-emerald-400" 
+                    : "from-amber-600 to-orange-600 dark:from-amber-400 dark:to-orange-400"
+                } bg-clip-text text-transparent`}>
+                  {isMarketOpen ? "Market is LIVE" : "Market is CLOSED"}
                 </span>
               </div>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs font-medium text-muted-foreground">
                 {isMarketOpen 
-                  ? marketStatus?.nextClose && `Closes at ${marketStatus.nextClose}`
-                  : marketStatus?.nextOpen && `Opens at ${marketStatus.nextOpen}`
+                  ? marketStatus?.nextClose ? `Closes: ${marketStatus.nextClose}` : "Live trading active"
+                  : marketStatus?.nextOpen && `Opens: ${marketStatus.nextOpen}`
                 }
               </span>
             </div>

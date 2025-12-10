@@ -40,17 +40,25 @@ export function PendingOrders() {
     try {
       const response = await fetch("/api/trading/simulator/pending-orders/process", {
         method: "POST",
+        credentials: "include",
       });
 
+      const result = await response.json();
+      
       if (!response.ok) {
-        throw new Error("Failed to process orders");
+        console.error("Process orders error:", result);
+        throw new Error(result.error || "Failed to process orders");
       }
 
-      const result = await response.json();
+      console.log("Process orders result:", result);
       
       if (result.processed > 0) {
         toast.success(`Processed ${result.processed} order(s)`, {
           description: result.failed > 0 ? `${result.failed} order(s) failed` : undefined,
+        });
+      } else if (result.failed > 0) {
+        toast.error(`Failed to process ${result.failed} order(s)`, {
+          description: result.results?.map((r: any) => `${r.symbol}: ${r.error}`).join(", "),
         });
       } else {
         toast.info("No orders to process");
@@ -58,6 +66,7 @@ export function PendingOrders() {
       
       mutate();
     } catch (error: any) {
+      console.error("Process orders exception:", error);
       toast.error(error.message || "Failed to process orders");
     } finally {
       setProcessing(false);
@@ -162,7 +171,8 @@ export function PendingOrders() {
                         day: 'numeric',
                         hour: '2-digit',
                         minute: '2-digit',
-                      })}
+                        timeZone: 'Asia/Karachi',
+                      })} PKT
                     </div>
                   </div>
                   <Button
@@ -179,8 +189,9 @@ export function PendingOrders() {
           })}
         </div>
         <div className="mt-4 pt-4 border-t">
-          <p className="text-xs text-muted-foreground">
-            Orders will automatically execute when market opens (9:30 AM ET)
+          <p className="text-xs text-muted-foreground flex items-center gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+            Orders will automatically execute when market opens (7:30 PM PKT)
           </p>
         </div>
       </CardContent>

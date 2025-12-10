@@ -1,108 +1,210 @@
 import { marketDataService } from "../../services/marketDataService";
+import { alphaVantageService } from "../../services/alphaVantageService";
 import { prisma } from "../../lib/db";
 
 export const newsService = {
   /**
-   * Get general market news
+   * Get general market news using Alpha Vantage News & Sentiment
    */
   async getMarketNews(category: string = "general") {
-    return await marketDataService.getMarketNews(category);
+    try {
+      console.log(`Fetching market news for category: ${category}`);
+      const now = new Date();
+      const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const fmt = (d: Date) => `${d.getUTCFullYear()}${pad(d.getUTCMonth()+1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`;
+      const time_from = fmt(from);
+      
+      // Fetch general financial news without topic filter for better reliability
+      const newsData = await alphaVantageService.getNewsSentiment({
+        sort: "LATEST",
+        limit: 50,
+        time_from,
+      });
+
+      console.log(`Alpha Vantage returned ${newsData.feed?.length || 0} articles`);
+      
+      if (newsData.feed && newsData.feed.length > 0) {
+        return newsData.feed;
+      }
+      
+      // If no articles, try Finnhub fallback
+      console.log("No articles from Alpha Vantage, trying Finnhub fallback");
+      return await marketDataService.getMarketNews(category);
+    } catch (error) {
+      console.error("Error fetching Alpha Vantage news:", error);
+      // Fallback to Finnhub
+      try {
+        return await marketDataService.getMarketNews(category);
+      } catch (fallbackError) {
+        console.error("Finnhub fallback also failed:", fallbackError);
+        return [];
+      }
+    }
   },
 
   /**
    * Get personalized news feed based on user's portfolio holdings
-   * Combines market news with news from user's holdings
+   * Prioritizes news from holdings, then watchlist, then general market
    */
   async getPersonalizedNewsFeed(userId: string, days: number = 7) {
     try {
+      console.log(`[NEWS SERVICE] Starting getPersonalizedNewsFeed for user: ${userId}`);
+      // Compute time window for Alpha Vantage NEWS_SENTIMENT
+      const now = new Date();
+      const from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const fmt = (d: Date) => `${d.getUTCFullYear()}${pad(d.getUTCMonth()+1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`;
+      const time_from = fmt(from);
+      
+      // Always fetch general market news first as a baseline
+      console.log('[NEWS SERVICE] Fetching general market news...');
+      let marketNews: any[] = [];
+      try {
+        marketNews = await this.getMarketNews("general");
+        console.log(`[NEWS SERVICE] Got ${marketNews.length} market news articles`);
+      } catch (error) {
+        console.error('[NEWS SERVICE] Failed to fetch market news:', error);
+        marketNews = [];
+      }
+      
       // Get user's simulator profile and holdings
-      const profile = await prisma.simulatorProfile.findUnique({
-        where: { userId },
-        include: {
-          holdings: {
-            include: {
-              asset: true,
+      let profile;
+      try {
+        profile = await prisma.simulatorProfile.findUnique({
+          where: { userId },
+          include: {
+            holdings: {
+              include: {
+                asset: true,
+              },
+            },
+            watchlist: {
+              include: {
+                asset: true,
+              },
             },
           },
-          watchlist: {
-            include: {
-              asset: true,
-            },
-          },
-        },
-      });
+        });
+        console.log(`[NEWS SERVICE] Profile found: ${!!profile}, Holdings: ${profile?.holdings.length || 0}`);
+      } catch (error) {
+        console.error('[NEWS SERVICE] Failed to fetch profile:', error);
+        profile = null;
+      }
 
       if (!profile) {
         // Return general market news if no profile
+        const limitedMarketNews = marketNews.slice(0, 50);
+        console.log(`[NEWS SERVICE] No profile, returning ${limitedMarketNews.length} market news`);
         return {
-          marketNews: await marketDataService.getMarketNews("general"),
+          marketNews: limitedMarketNews,
           holdingsNews: [],
           watchlistNews: [],
+          summary: {
+            totalHoldings: 0,
+            totalWatchlist: 0,
+            newsCount: {
+              market: limitedMarketNews.length,
+              holdings: 0,
+              watchlist: 0,
+            },
+          },
         };
       }
 
       // Get unique symbols from holdings and watchlist
       const holdingSymbols = profile.holdings.map((h) => h.asset.symbol);
       const watchlistSymbols = profile.watchlist.map((w) => w.asset.symbol);
-      const allSymbols = [...new Set([...holdingSymbols, ...watchlistSymbols])];
+      console.log(`[NEWS SERVICE] Holdings symbols: ${holdingSymbols.join(', ')}`);
 
-      // Date range for news
-      const to = new Date().toISOString().split("T")[0];
-      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split("T")[0];
-
-      // Fetch news for all symbols in parallel
-      const newsPromises = allSymbols.map(async (symbol) => {
-        const news = await marketDataService.getCompanyNews(symbol, from, to);
-        return { symbol, news };
-      });
-
-      const allNews = await Promise.all(newsPromises);
-
-      // Separate holdings news from watchlist news
-      const holdingsNews = allNews
-        .filter((n) => holdingSymbols.includes(n.symbol))
-        .flatMap((n) =>
-          n.news.map((article) => ({
+      // Fetch news using Alpha Vantage for holdings (prioritized)
+      let holdingsNews: any[] = [];
+      if (holdingSymbols.length > 0) {
+        try {
+          console.log('[NEWS SERVICE] Fetching holdings news...');
+          const holdingsNewsData = await alphaVantageService.getNewsSentiment({
+            tickers: holdingSymbols.join(","),
+            sort: "LATEST",
+            limit: 50,
+            time_from,
+          });
+          
+          holdingsNews = (holdingsNewsData.feed || []).map((article: any) => ({
             ...article,
-            symbol: n.symbol,
             inHoldings: true,
-          }))
-        )
-        .sort((a, b) => b.datetime - a.datetime);
+            relevantTickers: article.ticker_sentiment?.filter((ts: any) => 
+              holdingSymbols.includes(ts.ticker)
+            ),
+          }));
+          console.log(`[NEWS SERVICE] Got ${holdingsNews.length} holdings news`);
+        } catch (error) {
+          console.error('[NEWS SERVICE] Failed to fetch holdings news:', error);
+        }
+      }
 
-      const watchlistNews = allNews
-        .filter((n) => watchlistSymbols.includes(n.symbol))
-        .flatMap((n) =>
-          n.news.map((article) => ({
+      // Fetch news for watchlist
+      let watchlistNews: any[] = [];
+      if (watchlistSymbols.length > 0) {
+        try {
+          console.log('[NEWS SERVICE] Fetching watchlist news...');
+          const watchlistNewsData = await alphaVantageService.getNewsSentiment({
+            tickers: watchlistSymbols.join(","),
+            sort: "LATEST",
+            limit: 30,
+            time_from,
+          });
+          
+          watchlistNews = (watchlistNewsData.feed || []).map((article: any) => ({
             ...article,
-            symbol: n.symbol,
             inWatchlist: true,
-          }))
-        )
-        .sort((a, b) => b.datetime - a.datetime);
+            relevantTickers: article.ticker_sentiment?.filter((ts: any) => 
+              watchlistSymbols.includes(ts.ticker)
+            ),
+          }));
+          console.log(`[NEWS SERVICE] Got ${watchlistNews.length} watchlist news`);
+        } catch (error) {
+          console.error('[NEWS SERVICE] Failed to fetch watchlist news:', error);
+        }
+      }
 
-      // Get general market news
-      const marketNews = await marketDataService.getMarketNews("general");
-
-      return {
-        marketNews,
+      const limitedMarketNews = marketNews.slice(0, 50);
+      
+      const result = {
+        marketNews: limitedMarketNews,
         holdingsNews,
         watchlistNews,
         summary: {
           totalHoldings: holdingSymbols.length,
           totalWatchlist: watchlistSymbols.length,
           newsCount: {
-            market: marketNews.length,
+            market: limitedMarketNews.length,
             holdings: holdingsNews.length,
             watchlist: watchlistNews.length,
           },
         },
       };
+      
+      console.log(`[NEWS SERVICE] Returning complete feed:`, result.summary.newsCount);
+      return result;
     } catch (error) {
-      console.error("Error fetching personalized news:", error);
-      throw error;
+      console.error("[NEWS SERVICE] Critical error in getPersonalizedNewsFeed:", error);
+      console.error("[NEWS SERVICE] Error stack:", (error as Error).stack);
+      
+      // Return empty but valid structure
+      return {
+        marketNews: [],
+        holdingsNews: [],
+        watchlistNews: [],
+        summary: {
+          totalHoldings: 0,
+          totalWatchlist: 0,
+          newsCount: {
+            market: 0,
+            holdings: 0,
+            watchlist: 0,
+          },
+        },
+      };
     }
   },
 
@@ -193,7 +295,7 @@ export const newsService = {
           ...earning,
           holding: {
             quantity: holding?.quantity,
-            averagePrice: holding?.averagePrice,
+            averageBuyPrice: holding?.averageBuyPrice,
           },
         };
       });
