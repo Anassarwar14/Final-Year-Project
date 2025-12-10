@@ -205,7 +205,7 @@ export default function TradingSimulator() {
                 <CardContent>
                   <div className="text-3xl font-bold font-numeric bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {balance < 100 && holdingsValue < 100 ? (
+                    {balance < 100 && holdingsValue < 100 && (
                       <Button
                         variant="link"
                         size="sm"
@@ -214,8 +214,6 @@ export default function TradingSimulator() {
                       >
                         Reset Portfolio →
                       </Button>
-                    ) : (
-                      <span className="font-numeric">`Cash: $${balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} + Holdings: $${holdingsValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`</span>
                     )}
                   </p>
                 </CardContent>

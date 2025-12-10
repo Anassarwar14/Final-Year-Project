@@ -258,11 +258,10 @@ import {
   Bot,
   GraduationCap,
   Newspaper,
-  Wallet,
+  ChartPie,
   Home,
   LucideChartCandlestick,
 } from "lucide-react"
-import { VscPieChart } from "react-icons/vsc";
 
 import { useCurrentUser } from "@/hooks/use-current-user"   
 import { NavMain } from "@/components/nav-main"
@@ -289,7 +288,7 @@ const navMain = [
   {
     title: "Portfolio",
     url: "/portfolio",
-    icon: VscPieChart,
+    icon: ChartPie,
     items: [
       { title: "Overview", url: "/portfolio" },
       { title: "Holdings", url: "/portfolio/holdings" },

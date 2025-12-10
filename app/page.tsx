@@ -19,8 +19,10 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { ModeToggle } from "@/components/theme-toggle";
 import GlassmorphismNavbar from "@/components/Navbar";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const router = useRouter();
   return (
     <div className="bg-background text-primary min-h-screen">
       <GlassmorphismNavbar />
@@ -52,7 +54,7 @@ export default function Home() {
       </section>
 
       {/* FEATURE: Conversational */}
-      <section className="px-6 sm:px-20 py-28 max-w-6xl mx-auto space-y-24">
+      {/* <section className="px-6 sm:px-20 py-28 max-w-6xl mx-auto space-y-24">
         <div className="grid sm:grid-cols-2 gap-16 items-center">
           <div>
             <h2 className="text-4xl font-bold mb-6 text-primary">
@@ -73,9 +75,9 @@ export default function Home() {
             className="rounded-2xl shadow-lg"
           />
         </div>
-      </section>
-
-      {/* FEATURE: Masonry Grid Showcase */}
+      </section> */}
+{/* 
+      FEATURE: Masonry Grid Showcase
       <section className="px-6 sm:px-20 py-28 max-w-7xl mx-auto">
         <h2 className="text-4xl font-bold mb-12 text-primary text-center">
           Designed for <span className="text-secondary">clarity</span>.
@@ -102,14 +104,17 @@ export default function Home() {
             </div>
           ))}
         </div>
-      </section>
+      </section> */}
 
       {/* CALL TO ACTION */}
       <section className="text-center py-32 bg-gray-50">
         <h2 className="text-5xl font-extrabold mb-8 text-primary">
           Ready to build your wealth?
         </h2>
-        <Button className="bg-primary text-white rounded-full px-10 py-6 text-lg font-medium hover:opacity-90 transition">
+        <Button
+          onClick={() => router.push("/dashboard")}
+          className="bg-primary text-white rounded-full px-10 py-6 text-lg font-medium hover:opacity-90 transition"
+        >
           Start Free Today
         </Button>
       </section>

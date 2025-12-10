@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Instagram } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "./ui/button";
+import Image from "next/image";
 
 
 const links = [
@@ -44,7 +45,13 @@ export default function GlassmorphismNavbar() {
           <div className="relative flex items-center justify-between">
             <div className="flex items-center py-4">
               <Link href="/" className="text-2xl font-bold text-foreground hover:text-foreground/80 transition-colors">
-                BOA
+                <Image
+                  src="/favicon.ico" 
+                  alt="WealthFlow Logo" 
+                  width={32} 
+                  height={32}
+                    className="h-8 w-8 object-contain"
+                />
               </Link>
             </div>
 
