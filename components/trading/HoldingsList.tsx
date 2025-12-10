@@ -12,6 +12,9 @@ interface Holding {
   quantity: number;
   averageBuyPrice: number;
   currentPrice?: number;
+  value?: number;
+  unrealizedPnL?: number;
+  unrealizedPnLPercent?: number;
 }
 
 interface HoldingsListProps {
@@ -43,11 +46,12 @@ export function HoldingsList({ holdings }: HoldingsListProps) {
       <CardContent>
         <div className="space-y-3">
           {holdings.map((holding, index) => {
-            const value = (holding.currentPrice || holding.averageBuyPrice) * holding.quantity;
-            const costBasis = holding.averageBuyPrice * holding.quantity;
-            const gain = value - costBasis;
-            const gainPercent = (gain / costBasis) * 100;
-            const isPositive = gain >= 0;
+            // Use backend-calculated values if available
+            const value = holding.value ?? (holding.currentPrice || holding.averageBuyPrice) * holding.quantity;
+            const unrealizedPnL = holding.unrealizedPnL ?? 0;
+            const unrealizedPnLPercent = holding.unrealizedPnLPercent ?? 0;
+            const isPositive = unrealizedPnL >= 0;
+            const hasChange = Math.abs(unrealizedPnL) > 0.01; // Only show change if meaningful
 
             return (
               <div
@@ -55,24 +59,36 @@ export function HoldingsList({ holdings }: HoldingsListProps) {
                 className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/50 transition-colors"
               >
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">{holding.asset.symbol}</span>
-                    <Badge variant="outline" className="text-xs">
-                      {holding.quantity} shares
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold text-base">{holding.asset.symbol}</span>
+                    <Badge variant="secondary" className="text-xs">
+                      {holding.quantity} {holding.quantity === 1 ? 'share' : 'shares'}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-xs text-muted-foreground line-clamp-1">
                     {holding.asset.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Avg. ${holding.averageBuyPrice.toFixed(2)} • Current ${(holding.currentPrice || holding.averageBuyPrice).toFixed(2)}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold">${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-                  <div className={`flex items-center justify-end gap-1 text-xs ${isPositive ? "text-positive" : "text-negative"}`}>
-                    {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                    <span>
-                      {isPositive ? "+" : ""}${Math.abs(gain).toFixed(2)} ({isPositive ? "+" : ""}{gainPercent.toFixed(2)}%)
-                    </span>
-                  </div>
+                  <p className="font-semibold text-lg">
+                    ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                  {hasChange && (
+                    <div className={`flex items-center justify-end gap-1 text-sm font-medium ${isPositive ? "text-green-600 dark:text-green-500" : "text-red-600 dark:text-red-500"}`}>
+                      {isPositive ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+                      <span>
+                        {isPositive ? "+" : ""}${Math.abs(unrealizedPnL).toFixed(2)} ({isPositive ? "+" : ""}{unrealizedPnLPercent.toFixed(2)}%)
+                      </span>
+                    </div>
+                  )}
+                  {!hasChange && (
+                    <div className="text-xs text-muted-foreground">
+                      No change
+                    </div>
+                  )}
                 </div>
               </div>
             );

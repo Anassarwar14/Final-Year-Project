@@ -18,6 +18,11 @@ const nextConfig: NextConfig = {
         hostname: 'flowbite.s3.amazonaws.com',
         pathname: '**',
       },
+      {
+        protocol: 'https',
+        hostname: '**',
+        pathname: '**',
+      },
     ],
   },
 };

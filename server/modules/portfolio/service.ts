@@ -7,7 +7,7 @@ export const portfolioService = {
    */
   async getEnhancedPortfolio(userId: string) {
     try {
-      const profile = await prisma.simulatorProfile.findUnique({
+      const profile = await prisma.portfolio.findFirst({
         where: { userId },
         include: {
           holdings: {
@@ -37,8 +37,10 @@ export const portfolioService = {
       const enrichedHoldings = profile.holdings.map((holding) => {
         const quote = quotes.get(holding.asset.symbol);
         const currentPrice = quote?.c || 0;
-        const totalValue = currentPrice * holding.quantity;
-        const totalCost = holding.averagePrice * holding.quantity;
+        const quantityNum = Number(holding.quantity);
+        const avgBuyPriceNum = Number(holding.averageBuyPrice);
+        const totalValue = currentPrice * quantityNum;
+        const totalCost = avgBuyPriceNum * quantityNum;
         const unrealizedPnL = totalValue - totalCost;
         const unrealizedPnLPercent =
           totalCost > 0 ? (unrealizedPnL / totalCost) * 100 : 0;
@@ -77,10 +79,9 @@ export const portfolioService = {
       return {
         profile: {
           id: profile.id,
-          balance: profile.balance,
-          totalValue: totalValue + profile.balance,
+          cashBalance: Number(profile.cashBalance),
+          totalValue: totalValue + Number(profile.cashBalance),
           investedValue: totalCost,
-          cashBalance: profile.balance,
         },
         holdings: enrichedHoldings,
         recentTransactions: profile.transactions,

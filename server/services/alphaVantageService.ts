@@ -47,10 +47,14 @@ async function makeRequest(params: Record<string, string>, cacheKey?: string): P
     
     // Try to return cached data if available
     if (cacheKey) {
-      const cached = await redis.get(cacheKey).catch(() => null);
-      if (cached) {
-        console.log(`Returning cached data for ${cacheKey}`);
-        return cached;
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          console.log(`Returning cached data for ${cacheKey}`);
+          return cached;
+        }
+      } catch (err) {
+        console.error("Redis cache read error:", err);
       }
     }
     
@@ -65,12 +69,23 @@ async function makeRequest(params: Record<string, string>, cacheKey?: string): P
 
   const url = `${BASE_URL}?${queryParams}`;
   
+  console.log(`Making Alpha Vantage request: ${params.function}`);
+  
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
-    return await response.json();
+    const data = await response.json();
+    
+    // Log the response structure for debugging
+    if (data["Error Message"]) {
+      console.error("Alpha Vantage API Error:", data["Error Message"]);
+    } else if (data.Note) {
+      console.warn("Alpha Vantage Note:", data.Note);
+    }
+    
+    return data;
   } catch (error) {
     console.error("Alpha Vantage API error:", error);
     throw error;
@@ -344,54 +359,199 @@ export const alphaVantageService = {
 
   /**
    * Get market status (open/closed)
-   * TEMPORARY: Returns always open for testing
+   * TEMPORARY OVERRIDE: Always returns open for testing
    */
   async getMarketStatus(): Promise<{ isOpen: boolean; nextOpen?: string; nextClose?: string }> {
+    // TEMPORARY: Force market open for testing
+    // console.log("⚠️ MARKET STATUS OVERRIDE: Forcing market OPEN for testing");
+    // return {
+    //   isOpen: true,
+    //   nextOpen: "9:30 AM ET",
+    //   nextClose: "4:00 PM ET"
+    // };
+
+    //UNCOMMENT THIS BLOCK TO RESTORE REAL MARKET HOURS:
     try {
-      // TEMPORARY: Force market open for testing
-      // TODO: Uncomment real API call when ready for production
-      // return {
-      //   isOpen: true,
-      //   nextOpen: undefined,
-      //   nextClose: "4:00 PM ET"
-      // };
-      
-      // REAL MARKET STATUS CHECK - UNCOMMENT FOR PRODUCTION:
       const data = await makeRequest({
         function: "MARKET_STATUS",
       });
 
       if (!data.markets) {
-        return { isOpen: false };
+        console.warn("No markets data, using fallback calculation");
+        return this.calculateMarketStatusFallback();
       }
 
       // Find US market status
       const usMarket = data.markets.find((m: any) => m.region === "United States");
       if (usMarket) {
+        const isOpen = usMarket.current_status === "open";
+        console.log(`Market status: ${isOpen ? 'OPEN' : 'CLOSED'} (${usMarket.current_status})`);
+        
+        // Convert ET times to Pakistan Time (PKT = UTC+5, ET = UTC-5, difference = 10 hours)
+        // 9:30 AM ET + 10 hours = 7:30 PM PKT
+        // 4:00 PM ET + 10 hours = 2:00 AM PKT (next day)
+        const convertETtoPKT = (etTime: string) => {
+          // Parse "09:30" or "16:00" format
+          const match = etTime.match(/(\d{1,2}):(\d{2})/);
+          if (!match) return etTime + " PKT";
+          
+          let hours = parseInt(match[1]);
+          const minutes = match[2];
+          hours += 10; // Add 10 hours for PKT
+          
+          if (hours >= 24) {
+            hours -= 24;
+            return `${hours.toString().padStart(2, '0')}:${minutes} PKT (next day)`;
+          }
+          
+          const period = hours >= 12 ? 'PM' : 'AM';
+          const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+          return `${displayHours}:${minutes} ${period} PKT`;
+        };
+        
         return {
-          isOpen: usMarket.current_status === "open",
-          nextOpen: usMarket.local_open,
-          nextClose: usMarket.local_close,
+          isOpen,
+          nextOpen: convertETtoPKT(usMarket.local_open),
+          nextClose: convertETtoPKT(usMarket.local_close),
         };
       }
 
-      return { isOpen: false };
+      console.warn("US market not found, using fallback calculation");
+      return this.calculateMarketStatusFallback();
     } catch (error) {
-      console.error("Error fetching market status:", error);
-      return { isOpen: true }; // Default to open on error for testing
+      console.error("Error fetching market status, using fallback:", error);
+      return this.calculateMarketStatusFallback();
     }
   },
 
   /**
    * Fallback market status calculation based on time
    */
-  calculateMarketStatusFallback(): { isOpen: boolean } {
+  calculateMarketStatusFallback(): { isOpen: boolean; nextOpen?: string; nextClose?: string } {
     const now = new Date();
     const day = now.getUTCDay();
     const hour = now.getUTCHours();
+    const minute = now.getUTCMinutes();
     const isWeekday = day >= 1 && day <= 5;
-    const isDuringMarketHours = hour >= 14 && hour < 21; // 9:30 AM - 4:00 PM ET in UTC
-    return { isOpen: isWeekday && isDuringMarketHours };
+    // US market: 9:30 AM - 4:00 PM ET = 14:30 - 21:00 UTC (EST) or 13:30 - 20:00 UTC (EDT)
+    // Using EST timing (14:30 - 21:00 UTC)
+    const marketStartMinutes = 14 * 60 + 30; // 14:30 UTC
+    const marketEndMinutes = 21 * 60; // 21:00 UTC
+    const currentMinutes = hour * 60 + minute;
+    const isDuringMarketHours = currentMinutes >= marketStartMinutes && currentMinutes < marketEndMinutes;
+    const isOpen = isWeekday && isDuringMarketHours;
+    console.log(`Fallback market status: ${isOpen ? 'OPEN' : 'CLOSED'} (Day: ${day}, UTC Time: ${hour}:${minute})`);
+    // Market: 9:30 AM ET = 7:30 PM PKT, 4:00 PM ET = 2:00 AM PKT (next day)
+    return { isOpen, nextOpen: "7:30 PM PKT", nextClose: "2:00 AM PKT" };
+  },
+
+  /**
+   * Get News & Sentiment data
+   * Alpha Vantage NEWS_SENTIMENT endpoint
+   */
+  async getNewsSentiment(params: {
+    tickers?: string; // e.g., "AAPL,MSFT"
+    topics?: string; // e.g., "technology,earnings"
+    time_from?: string; // YYYYMMDDTHHMM format
+    time_to?: string;
+    sort?: "LATEST" | "EARLIEST" | "RELEVANCE";
+    limit?: number; // Max 1000
+  }): Promise<any> {
+    const cacheKey = `av:news:${JSON.stringify(params)}`;
+    
+    try {
+      // Try cache first but don't fail if Redis is down
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          console.log("[ALPHA VANTAGE] Returning cached news data");
+          return cached;
+        }
+      } catch (cacheError) {
+        console.warn("[ALPHA VANTAGE] Redis cache error (continuing without cache):", cacheError);
+      }
+
+      console.log("[ALPHA VANTAGE] Fetching news from Alpha Vantage API with params:", params);
+
+      const requestParams: Record<string, string> = {
+        function: "NEWS_SENTIMENT",
+      };
+
+      if (params.tickers) requestParams.tickers = params.tickers;
+      if (params.topics) requestParams.topics = params.topics;
+      if (params.time_from) requestParams.time_from = params.time_from;
+      if (params.time_to) requestParams.time_to = params.time_to;
+      if (params.sort) requestParams.sort = params.sort;
+      if (params.limit) requestParams.limit = params.limit.toString();
+
+      const data = await makeRequest(requestParams, cacheKey);
+
+      console.log("[ALPHA VANTAGE] Response received:", {
+        hasFeed: !!data.feed,
+        feedLength: data.feed?.length || 0,
+        hasError: !!data["Error Message"] || !!data.Note,
+        errorMessage: data["Error Message"] || data.Note,
+      });
+
+      // Check for API errors
+      if (data["Error Message"]) {
+        console.error("[ALPHA VANTAGE] API Error:", data["Error Message"]);
+        return { feed: [], items: 0, sentiment_score_definition: "" };
+      }
+
+      if (data.Note) {
+        console.warn("[ALPHA VANTAGE] API Note (rate limit?):", data.Note);
+        return { feed: [], items: 0, sentiment_score_definition: "" };
+      }
+
+      if (data.feed && data.feed.length > 0) {
+        // Try to cache but don't fail if Redis is down
+        try {
+          await redis.setex(cacheKey, 900, data);
+          console.log("[ALPHA VANTAGE] Cached", data.feed.length, "articles");
+        } catch (cacheError) {
+          console.warn("[ALPHA VANTAGE] Failed to cache (continuing anyway):", cacheError);
+        }
+        return data;
+      }
+
+      console.warn("[ALPHA VANTAGE] No feed data in response");
+      return { feed: [], items: 0, sentiment_score_definition: "" };
+    } catch (error) {
+      console.error("[ALPHA VANTAGE] Fatal error fetching news sentiment:", error);
+      console.error("[ALPHA VANTAGE] Error stack:", (error as Error).stack);
+      return { feed: [], items: 0, sentiment_score_definition: "" };
+    }
+  },
+
+  /**
+   * Get top market gainers/losers
+   */
+  async getTopGainersLosers(): Promise<any> {
+    const cacheKey = "av:top_gainers_losers";
+    
+    try {
+      // Check cache first
+      const cached = await redis.get(cacheKey).catch(() => null);
+      if (cached) {
+        return cached;
+      }
+
+      const data = await makeRequest({
+        function: "TOP_GAINERS_LOSERS",
+      }, cacheKey);
+
+      if (data) {
+        // Cache for 5 minutes
+        await redis.setex(cacheKey, 300, data).catch(() => {});
+        return data;
+      }
+
+      return { top_gainers: [], top_losers: [], most_actively_traded: [] };
+    } catch (error) {
+      console.error("Error fetching top gainers/losers:", error);
+      return { top_gainers: [], top_losers: [], most_actively_traded: [] };
+    }
   },
 };
 

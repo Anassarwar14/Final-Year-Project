@@ -237,6 +237,17 @@ marketRoutes.get("/news/market", async (c) => {
   }
 });
 
+// Top movers endpoint (gainers, losers, most active)
+marketRoutes.get("/top-movers", async (c) => {
+  try {
+    const data = await alphaVantageService.getTopGainersLosers();
+    return c.json(data);
+  } catch (error: any) {
+    console.error("Error fetching top movers:", error);
+    return c.json({ error: "Failed to fetch top movers" }, 500);
+  }
+});
+
 // Basic financials endpoint (for company analysis)
 marketRoutes.get("/financials/:symbol", async (c) => {
   try {
