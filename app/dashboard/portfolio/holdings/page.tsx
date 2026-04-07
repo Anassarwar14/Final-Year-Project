@@ -1,556 +1,289 @@
-"use client"
+"use client";
 
-import React, { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState } from "react";
 import useSWR from "swr";
-import {
-    TrendingUp,
-    TrendingDown,
-    ArrowUpRight,
-    ArrowDownRight,
-    Search,
-    Filter,
-    MoreHorizontal,
-    Plus,
-    Download,
-    Eye,
-    Edit,
-    Trash2,
-    Loader2,
-} from "lucide-react";
-
-// UI Components (assuming these paths are correct in the actual project)
-import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
+const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((res) => res.json());
 
-
-// Define the expected structure for a single holding from the API
-interface HoldingData {
-    id: string;
-    quantity: number;
-    averagePrice: number;
-    currentPrice: number;
-    totalValue: number;
-    unrealizedPnL: number;
-    unrealizedPnLPercent: number;
-    dayChange?: number; // Day change in absolute value
-    dayChangePercent?: number; // Day change in percentage
-    asset: {
-        symbol: string;
-        name: string;
-        logoUrl?: string;
-        sector?: string; // Optional: include sector for filtering
-    };
-}
-
-
-// Fetcher function for SWR
-const fetcher = (url: string) => fetch(url).then((res) => {
-    if (!res.ok) {
-        throw new Error("Failed to fetch portfolio data");
-    }
-    return res.json();
-});
-
-
-
-// --- Utility Functions ---
-
-// Safely map and augment the raw API data
-// const mapHoldingData = (rawHoldings: any[]): HoldingData[] => {
-//     return rawHoldings.map(h => ({
-//         id: h.id || crypto.randomUUID(), // Use provided ID or generate one
-//         quantity: h.quantity || 0,
-//         averagePrice: h.averagePrice || 0,
-//         currentPrice: h.currentPrice || 0,
-//         // Recalculate marketValue if not provided, for robustness
-//         totalValue: (h.quantity || 0) * (h.currentPrice || 0), 
-//         unrealizedPnL: h.unrealizedPnL || 0,
-//         unrealizedPnLPercent: h.unrealizedPnLPercent || 0,
-//         dayChange: h.dayChange || 0,
-//         dayChangePercent: h.dayChangePercent || 0,
-//         asset: {
-//             symbol: h.asset?.symbol || "UNKNOWN",
-//             name: h.asset?.name || h.asset?.symbol || "Unknown Asset",
-//             logoUrl: h.asset?.logoUrl,
-//             sector: h.asset?.sector || "N/A",
-//         },
-//     }));
-// };
-
-
-
-// Safely map and augment the raw API data
-const mapHoldingData = (rawHoldings: any[]): HoldingData[] => {
-    return rawHoldings.map(h => {
-        const quantity = h.quantity || 0;
-        // Assume raw API data contains valid avg price, or default to a non-zero mock for testing.
-        const averagePrice = h.averagePrice || 0; 
-        const currentPrice = h.currentPrice || 0;
-
-        // Calculate Cost Basis and Market Value
-        const costBasis = quantity * averagePrice;
-        const totalValue = quantity * currentPrice; 
-        
-        // Calculate PnL values
-        const unrealizedPnL = totalValue - costBasis;
-        const unrealizedPnLPercent = costBasis > 0 ? (unrealizedPnL / costBasis) * 100 : 0;
-        
-        // Use the API's day change values if present, or calculate/default to zero
-        const dayChange = h.dayChange || 0;
-        const dayChangePercent = h.dayChangePercent || 0;
-        
-        return {
-            id: h.id || crypto.randomUUID(), 
-            quantity: quantity,
-            averagePrice: averagePrice,
-            currentPrice: currentPrice,
-            totalValue: totalValue, // Recalculated total value
-            unrealizedPnL: unrealizedPnL, // CALCULATED
-            unrealizedPnLPercent: unrealizedPnLPercent, // CALCULATED
-            dayChange: dayChange,
-            dayChangePercent: dayChangePercent,
-            asset: {
-                symbol: h.asset?.symbol || "UNKNOWN",
-                name: h.asset?.name || h.asset?.symbol || "Unknown Asset",
-                logoUrl: h.asset?.logoUrl,
-                sector: h.asset?.sector || "N/A",
-            },
-        };
-    });
+type Holding = {
+  id: string;
+  quantity: number;
+  averageBuyPrice: number;
+  currentPrice: number;
+  totalValue: number;
+  unrealizedPnL: number;
+  unrealizedPnLPercent: number;
+  asset: {
+    symbol: string;
+    name: string;
+  };
 };
-// ---------------- HOLDINGS TABLE PROPS ----------------
 
-interface HoldingsTableProps {
-    holdings: HoldingData[];
-    totalPortfolioValue: number; // Needed for allocation calculation
-    searchQuery: string;
-    onSearchChange: (val: string) => void;
-    sectorFilter: string;
-    onSectorFilterChange: (val: string) => void;
-}
+type HoldingsResponse = {
+  portfolioId: string;
+  holdings: Holding[];
+};
 
-// --- Sub-Components ---
+type HoldingForm = {
+  symbol: string;
+  quantity: string;
+  buyPrice: string;
+};
 
-// Component for the main table of holdings
-function HoldingsTable({ 
-    holdings, 
-    totalPortfolioValue, 
-    searchQuery, 
-    onSearchChange, 
-    sectorFilter, 
-    onSectorFilterChange 
-}: HoldingsTableProps) {
-    
-    // Extract unique sectors for the filter dropdown based on all available data
-    const uniqueSectors = useMemo(() => {
-        const sectors = new Set<string>();
-        // Check the original data if available, or just iterate through current holdings
-        holdings.forEach(h => {
-            if (h.asset.sector && h.asset.sector !== "N/A") {
-                sectors.add(h.asset.sector);
-            }
-        });
-        return Array.from(sectors).sort();
-    }, [holdings]);
-    
-    if (holdings.length === 0 && (searchQuery || sectorFilter !== 'all')) {
-        return (
-            <Card>
-                <CardHeader>
-                    <CardTitle>Your Holdings</CardTitle>
-                    <CardDescription>Detailed view of all your positions</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="text-center py-12 text-muted-foreground">
-                        <p className="mb-2">No holdings match your current search or filter criteria.</p>
-                        <p className="text-sm">Try clearing your search term or selecting a different sector.</p>
-                    </div>
-                </CardContent>
-            </Card>
-        );
-    }
-    
-    if (holdings.length === 0) {
-        return (
-            <Card>
-                <CardHeader>
-                    <CardTitle>Your Holdings</CardTitle>
-                    <CardDescription>Detailed view of all your positions</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="text-center py-12 text-muted-foreground">
-                        <p className="mb-2">No holdings found.</p>
-                        <p className="text-sm">Start trading to build your portfolio.</p>
-                    </div>
-                </CardContent>
-            </Card>
-        );
-    }
-
-    return (
-        <Card>
-            <CardHeader>
-                <div className="flex items-center justify-between">
-                    <div>
-                        <CardTitle>Your Holdings ({holdings.length})</CardTitle>
-                        <CardDescription>Detailed view of all your positions</CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {/* Search Input - NOW BOUND TO STATE */}
-                        <div className="relative">
-                            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input 
-                                placeholder="Search holdings..." 
-                                className="pl-8 w-64" 
-                                value={searchQuery}
-                                onChange={(e) => onSearchChange(e.target.value)}
-                            />
-                        </div>
-                        
-                        {/* Sector Filter - NOW BOUND TO STATE */}
-                        <Select value={sectorFilter} onValueChange={onSectorFilterChange}>
-                            <SelectTrigger className="w-40">
-                                <SelectValue placeholder="All Sectors" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Sectors</SelectItem>
-                                {/* Dynamically generate sector options */}
-                                {uniqueSectors.map((sector) => (
-                                    <SelectItem key={sector} value={sector.toLowerCase()}>
-                                        {sector}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        
-                        <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-                            <Filter className="h-4 w-4" />
-                            Filter
-                        </Button>
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Asset</TableHead>
-                            <TableHead className="text-right">Shares</TableHead>
-                            <TableHead className="text-right">Avg Cost</TableHead>
-                            <TableHead className="text-right">Current Price</TableHead>
-                            <TableHead className="text-right">Market Value</TableHead>
-                            <TableHead className="text-right">P&L (Total)</TableHead>
-                            <TableHead className="text-right">Day Change</TableHead>
-                            <TableHead className="text-right">Allocation</TableHead>
-                            <TableHead className="w-[50px]"></TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {holdings.map((holding) => {
-                            const isTotalPositive = holding.unrealizedPnL >= 0;
-                            const isDayPositive = holding.dayChangePercent && holding.dayChangePercent >= 0;
-                            // FIX: Calculate allocation correctly using the total portfolio value
-                            const allocationPercent = totalPortfolioValue > 0 
-                                ? (holding.totalValue / totalPortfolioValue) * 100 
-                                : 0;
-                            
-                            return (
-                                <TableRow key={holding.id || holding.asset.symbol} className="hover:bg-muted/50">
-                                    <TableCell>
-                                        <div className="flex items-center gap-3">
-                                            {holding.asset.logoUrl && (
-                                                <img
-                                                    src={holding.asset.logoUrl}
-                                                    alt={holding.asset.symbol}
-                                                    className="w-8 h-8 rounded-full"
-                                                    onError={(e) => {
-                                                        (e.target as HTMLImageElement).style.display = "none";
-                                                    }}
-                                                />
-                                            )}
-                                            <div className="font-semibold">
-                                                <span className="text-xs font-bold text-primary">{holding.asset.symbol}</span>
-                                            </div>
-                                            <div>
-                                                {/* <div className="font-medium">{holding.asset.symbol}</div> */}
-                                                <div className="text-xs text-muted-foreground">{holding.asset.name}</div>
-                                            </div>
-                                        </div>
-                                    </TableCell>
-                                    <TableCell className="text-right">{holding.quantity.toLocaleString()}</TableCell>
-                                    <TableCell className="text-right">${holding.averagePrice.toFixed(2)}</TableCell>
-                                    <TableCell className="text-right">${holding.currentPrice.toFixed(2)}</TableCell>
-                                    <TableCell className="text-right font-medium">${holding.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                                    <TableCell className="text-right">
-                                        <div className={isTotalPositive ? "text-green-600" : "text-red-600"}>
-                                            <div className="font-medium">
-                                                {isTotalPositive ? "+" : ""}${Math.abs(holding.unrealizedPnL).toFixed(2)}
-                                            </div>
-                                            <div className="text-xs">
-                                                ({isTotalPositive ? "+" : ""}{holding.unrealizedPnLPercent.toFixed(2)}%)
-                                            </div>
-                                        </div>
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                        <div
-                                            className={`flex flex-col items-end gap-0.5 ${
-                                                isDayPositive ? "text-green-600" : "text-red-600"
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-1 font-medium">
-                                                {isDayPositive ? (
-                                                    <ArrowUpRight className="h-3 w-3" />
-                                                ) : (
-                                                    <ArrowDownRight className="h-3 w-3" />
-                                                )}
-                                                {isDayPositive ? "+" : ""}${Math.abs(holding.dayChange || 0).toFixed(2)}
-                                            </div>
-                                            <div className="text-xs">
-                                                ({isDayPositive ? "+" : ""}{(holding.dayChangePercent || 0).toFixed(2)}%)
-                                            </div>
-                                        </div>
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                        <Badge variant="secondary">
-                                            {allocationPercent.toFixed(1)}%
-                                        </Badge>
-                                    </TableCell>
-                                    <TableCell>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                                    <MoreHorizontal className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem className="gap-2">
-                                                    <Eye className="h-4 w-4" />
-                                                    View Details
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem className="gap-2">
-                                                    <Edit className="h-4 w-4" />
-                                                    Edit Position
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem className="gap-2 text-red-600">
-                                                    <Trash2 className="h-4 w-4" />
-                                                    Sell Position
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </TableCell>
-                                </TableRow>
-                            );
-                        })}
-                    </TableBody>
-                </Table>
-            </CardContent>
-        </Card>
-    );
-}
-
-// --- Main Component ---
+const emptyForm: HoldingForm = { symbol: "", quantity: "", buyPrice: "" };
 
 export default function HoldingsPage() {
-    // 1. Fetch data using SWR
-    const { data, isLoading, error } = useSWR("/api/portfolio/overview", fetcher, {
-        refreshInterval: 30000,
+  const { data, isLoading, mutate } = useSWR<HoldingsResponse>("/api/portfolio/holdings", fetcher);
+  const [formOpen, setFormOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<HoldingForm>(emptyForm);
+  const [error, setError] = useState<string | null>(null);
+
+  const holdings = data?.holdings || [];
+  const toNumber = (value: number | string) => (typeof value === "number" ? value : Number(value));
+
+  const totals = useMemo(() => {
+    const invested = holdings.reduce((sum, h) => sum + toNumber(h.averageBuyPrice) * toNumber(h.quantity), 0);
+    const current = holdings.reduce((sum, h) => sum + toNumber(h.totalValue), 0);
+    const pnl = current - invested;
+    return { invested, current, pnl };
+  }, [holdings]);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setForm(emptyForm);
+    setError(null);
+    setFormOpen(true);
+  };
+
+  const openEdit = (holding: Holding) => {
+    setEditingId(holding.id);
+    setForm({
+      symbol: holding.asset.symbol,
+      quantity: String(holding.quantity),
+      buyPrice: String(holding.averageBuyPrice),
+    });
+    setError(null);
+    setFormOpen(true);
+  };
+
+  const onSubmit = async () => {
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const payload = {
+        symbol: form.symbol.trim().toUpperCase(),
+        quantity: Number(form.quantity),
+        buyPrice: Number(form.buyPrice),
+      };
+
+      const endpoint = editingId ? `/api/portfolio/holdings/${editingId}` : "/api/portfolio/holdings";
+      const method = editingId ? "PUT" : "POST";
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Request failed");
+      }
+
+      await mutate();
+      setFormOpen(false);
+      setForm(emptyForm);
+    } catch (err: any) {
+      setError(err.message || "Something went wrong");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onDelete = async (holdingId: string) => {
+    if (!confirm("Delete this holding?") ) return;
+
+    const res = await fetch(`/api/portfolio/holdings/${holdingId}`, {
+      method: "DELETE",
+      credentials: "include",
     });
 
-    // --- State for Search and Filter (NEW) ---
-    const [searchQuery, setSearchQuery] = useState<string>("");
-    const [sectorFilter, setSectorFilter] = useState<string>("all");
-
-    // 2. Map and Calculate data
-    const holdings = useMemo(() => {
-        return mapHoldingData(data?.holdings || []);
-    }, [data]);
-
-    const totalValue = useMemo(() => {
-        return holdings.reduce((acc, curr) => acc + curr.totalValue, 0);
-    }, [holdings]);
-    
-    // Note: Day change must be calculated by summing up the absolute $ change for all shares
-    const totalDayChange = useMemo(() => {
-        return holdings.reduce((acc, curr) => acc + (curr.dayChange || 0), 0); 
-    }, [holdings]);
-
-    // ** Filtered Holdings Logic (NEW) **
-    const filteredHoldings = useMemo(() => {
-        let currentHoldings = holdings;
-        const lowerCaseSearchQuery = searchQuery.toLowerCase();
-
-        // 1. Apply Search Filter
-        if (lowerCaseSearchQuery) {
-            currentHoldings = currentHoldings.filter(holding =>
-                holding.asset.symbol.toLowerCase().includes(lowerCaseSearchQuery) ||
-                holding.asset.name.toLowerCase().includes(lowerCaseSearchQuery)
-            );
-        }
-
-        // 2. Apply Sector Filter
-        if (sectorFilter && sectorFilter !== "all") {
-            const lowerCaseSectorFilter = sectorFilter.toLowerCase();
-            currentHoldings = currentHoldings.filter(holding =>
-                holding.asset.sector?.toLowerCase() === lowerCaseSectorFilter
-            );
-        }
-
-        return currentHoldings;
-    }, [holdings, searchQuery, sectorFilter]);
-
-    // Calculate Best Performer (based on day change percentage)
-    const bestPerformer = useMemo(() => {
-        if (holdings.length === 0) return null;
-        return holdings.reduce((best, current) => {
-            if (!best || (current.dayChangePercent || 0) > (best.dayChangePercent || 0)) {
-                return current;
-            }
-            return best;
-        }, holdings[0]);
-    }, [holdings]);
-
-
-    // 3. Handle loading and error states
-    if (isLoading) {
-        return (
-            <SidebarInset>
-                <div className="flex items-center justify-center h-full min-h-[500px]">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-            </SidebarInset>
-        );
+    if (res.ok) {
+      await mutate();
     }
-    
-    if (error) {
-        return (
-            <SidebarInset>
-                <div className="p-4 text-center text-red-600">
-                    <h2 className="text-xl font-semibold mb-2">Error Loading Data</h2>
-                    <p>Could not fetch portfolio holdings. Please try again later.</p>
-                </div>
-            </SidebarInset>
-        );
-    }
+  };
 
-    // Determine the overall total gain/loss percentage for the placeholder card (using total PnL from the sum)
-    // NOTE: This calculation is often complex in real financial apps but simplified here.
-    const initialCostBasis = holdings.reduce((acc, curr) => acc + (curr.quantity * curr.averagePrice), 0);
-    const totalGainLoss = totalValue - initialCostBasis;
-    const totalGainLossPercent = initialCostBasis > 0 ? (totalGainLoss / initialCostBasis) * 100 : 0;
-    const isTotalPortfolioPositive = totalGainLoss >= 0;
-
+  if (isLoading) {
     return (
-        <>
-            <SidebarInset>
-                <header className="flex h-16 shrink-0 items-center gap-2 transition-all duration-200 ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
-                    <div className="flex items-center gap-2 px-4">
-                        <SidebarTrigger className="-ml-1" />
-                        <div className="h-4 w-px bg-sidebar-border" />
-                        <div className="flex items-center gap-2">
-                            <TrendingUp className="h-5 w-5 text-primary" />
-                            <h1 className="text-lg font-semibold">Holdings</h1>
-                        </div>
-                    </div>
-                    <div className="ml-auto px-4 flex items-center gap-2">
-                        <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-                            <Download className="h-4 w-4" />
-                            Export
-                        </Button>
-                        <Button size="sm" className="gap-2">
-                            <Plus className="h-4 w-4" />
-                            Add Position
-                        </Button>
-                    </div>
-                </header>
-
-                <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-                    {/* Summary Cards */}
-                    <div className="grid gap-4 md:grid-cols-4">
-                        {/* Card 1: Total Holdings */}
-                        <Card>
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">Total Holdings</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">{holdings.length}</div>
-                                <p className="text-xs text-muted-foreground">Active positions</p>
-                            </CardContent>
-                        </Card>
-                        
-                        {/* Card 2: Total Value */}
-                        <Card>
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">Total Value</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">
-                                    ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </div>
-                                <p className={`text-xs flex items-center gap-1 ${isTotalPortfolioPositive ? "text-green-600" : "text-red-600"}`}>
-                                    {isTotalPortfolioPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                                    {isTotalPortfolioPositive ? "+" : ""}${Math.abs(totalGainLoss).toFixed(2)} ({isTotalPortfolioPositive ? "+" : ""}{totalGainLossPercent.toFixed(2)}%)
-                                </p>
-                            </CardContent>
-                        </Card>
-                        
-                        {/* Card 3: Day's Change (Est) */}
-                        <Card>
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">Day's Change (Est)</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className={`text-2xl font-bold ${totalDayChange >= 0 ? "text-green-600" : "text-red-600"}`}>
-                                    {totalDayChange >= 0 ? "+" : ""}${totalDayChange.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                </div>
-                                <p className={`text-xs flex items-center gap-1 ${totalDayChange >= 0 ? "text-green-600" : "text-red-600"}`}>
-                                    {totalDayChange >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                                    {totalDayChange >= 0 ? "+" : ""}{((totalDayChange / totalValue) * 100).toFixed(2)}% today
-                                </p>
-                            </CardContent>
-                        </Card>
-
-                        {/* Card 4: Best Performer */}
-                        <Card>
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">Best Performer (Day)</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                {bestPerformer ? (
-                                    <>
-                                        <div className="text-2xl font-bold">{bestPerformer.asset.symbol}</div>
-                                        <p className="text-xs text-green-600 flex items-center gap-1">
-                                            <ArrowUpRight className="h-3 w-3" />
-                                            +{(bestPerformer.dayChangePercent || 0).toFixed(2)}% today
-                                        </p>
-                                    </>
-                                ) : (
-                                    <div className="text-2xl font-bold text-muted-foreground">-</div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    {/* Holdings Table */}
-                    <HoldingsTable 
-                        holdings={filteredHoldings} 
-                        totalPortfolioValue={totalValue}
-                        searchQuery={searchQuery}
-                        onSearchChange={setSearchQuery}
-                        sectorFilter={sectorFilter}
-                        onSectorFilterChange={setSectorFilter}
-                    />
-                </div>
-            </SidebarInset>
-        </>
+      <div className="flex-1 space-y-6 p-6">
+        <div className="flex items-center justify-center h-[320px]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </div>
     );
+  }
+
+  return (
+    <div className="flex-1 space-y-6 p-6">
+      <div className="flex items-center justify-between border-b border-primary/20 pb-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Holdings</h1>
+          <p className="text-muted-foreground mt-1">Manage your stock positions</p>
+        </div>
+        <Dialog open={formOpen} onOpenChange={setFormOpen}>
+          <DialogTrigger asChild>
+            <Button onClick={openCreate} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Add Holding
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingId ? "Edit Holding" : "Add Holding"}</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Symbol</label>
+                <Input
+                  value={form.symbol}
+                  onChange={(e) => setForm((prev) => ({ ...prev, symbol: e.target.value }))}
+                  placeholder="AAPL"
+                  disabled={!!editingId}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Quantity (No. of stocks)</label>
+                <Input
+                  type="number"
+                  value={form.quantity}
+                  onChange={(e) => setForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                  placeholder="10"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Buying Price</label>
+                <Input
+                  type="number"
+                  value={form.buyPrice}
+                  onChange={(e) => setForm((prev) => ({ ...prev, buyPrice: e.target.value }))}
+                  placeholder="150"
+                />
+              </div>
+              {error && <p className="text-sm text-red-600">{error}</p>}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFormOpen(false)} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button onClick={onSubmit} disabled={submitting}>
+                {submitting ? "Saving..." : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="border-primary/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Total Invested</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              ${totals.invested.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </div>
+            <p className="text-xs text-muted-foreground">Cost basis</p>
+          </CardContent>
+        </Card>
+        <Card className="border-primary/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Current Value</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              ${totals.current.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </div>
+            <p className="text-xs text-muted-foreground">Live market value</p>
+          </CardContent>
+        </Card>
+        <Card className={totals.pnl >= 0 ? "border-positive/30" : "border-negative/30"}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Unrealized P&L</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${totals.pnl >= 0 ? "text-positive" : "text-negative"}`}>
+              {totals.pnl >= 0 ? "+" : ""}${totals.pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </div>
+            <p className="text-xs text-muted-foreground">Across all holdings</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Your Holdings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {holdings.length === 0 ? (
+            <div className="text-center text-muted-foreground py-12">No holdings yet.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Symbol</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead className="text-right">Buy Price</TableHead>
+                  <TableHead className="text-right">Current Price</TableHead>
+                  <TableHead className="text-right">Market Value</TableHead>
+                  <TableHead className="text-right">P&L</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {holdings.map((holding) => (
+                  <TableRow key={holding.id}>
+                    <TableCell className="font-medium">{holding.asset.symbol}</TableCell>
+                    <TableCell>{holding.asset.name}</TableCell>
+                    <TableCell className="text-right">{toNumber(holding.quantity)}</TableCell>
+                    <TableCell className="text-right">${toNumber(holding.averageBuyPrice).toFixed(2)}</TableCell>
+                    <TableCell className="text-right">${toNumber(holding.currentPrice).toFixed(2)}</TableCell>
+                    <TableCell className="text-right">
+                      ${toNumber(holding.totalValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </TableCell>
+                    <TableCell className={`text-right ${toNumber(holding.unrealizedPnL) >= 0 ? "text-positive" : "text-negative"}`}>
+                      {toNumber(holding.unrealizedPnL) >= 0 ? "+" : ""}${toNumber(holding.unrealizedPnL).toFixed(2)}
+                      <div className="text-xs text-muted-foreground">
+                        {toNumber(holding.unrealizedPnL) >= 0 ? "+" : ""}{toNumber(holding.unrealizedPnLPercent).toFixed(2)}%
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" onClick={() => openEdit(holding)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => onDelete(holding.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
-
-
-
