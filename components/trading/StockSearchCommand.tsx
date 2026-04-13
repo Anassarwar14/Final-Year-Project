@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Search, TrendingUp, TrendingDown } from "lucide-react";
+import { Search } from "lucide-react";
 
 interface StockSearchCommandProps {
   open: boolean;
@@ -18,6 +18,8 @@ export function StockSearchCommand({ open, onOpenChange, onSelectStock }: StockS
 
   // Debounced search with useEffect
   useEffect(() => {
+    const abortController = new AbortController();
+
     const timeoutId = setTimeout(async () => {
       if (!search || search.length < 2) {
         setResults([]);
@@ -28,7 +30,11 @@ export function StockSearchCommand({ open, onOpenChange, onSelectStock }: StockS
       setLoading(true);
       try {
         console.log("Searching for:", search);
-        const response = await fetch(`/api/trading/market/search?q=${encodeURIComponent(search)}`);
+        const requestTimeout = setTimeout(() => abortController.abort(), 5000);
+        const response = await fetch(`/api/trading/market/search?q=${encodeURIComponent(search)}`, {
+          signal: abortController.signal,
+        });
+        clearTimeout(requestTimeout);
         console.log("Search response status:", response.status);
         
         if (!response.ok) {
@@ -46,7 +52,10 @@ export function StockSearchCommand({ open, onOpenChange, onSelectStock }: StockS
       }
     }, 500);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(timeoutId);
+      abortController.abort();
+    };
   }, [search]);
 
   const handleSelect = (symbol: string) => {

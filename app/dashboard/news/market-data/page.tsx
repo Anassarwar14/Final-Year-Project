@@ -242,7 +242,7 @@ export default function MarketData() {
                         borderRadius: "8px",
                       }}
                     />
-                    <Bar dataKey="performance" fill={(entry: any) => entry.color} radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="performance" fill="#10b981" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

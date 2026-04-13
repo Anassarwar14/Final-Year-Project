@@ -4,9 +4,16 @@ import privateRoutes from "./modules/private";
 import tradingRoutes from "./modules/trading";
 import newsRoutes from "./modules/news";
 import portfolioRoutes from "./modules/portfolio";
+import advisorRoutes from "./modules/advisor";
+import ragRoutes from "./modules/rag";
 import { alphaVantageService } from "./services/alphaVantageService";
 import { prisma } from "./lib/db";
 import { tradingService } from "./modules/trading/service";
+import { RAGService } from "./modules/rag/service";
+
+const globalForRagScheduler = globalThis as unknown as {
+  ragRefreshInitialized?: boolean;
+};
 
 const app = new Hono().basePath("/api");
 
@@ -15,7 +22,9 @@ const routes = app
   .route("/private", privateRoutes)
   .route("/trading", tradingRoutes)
   .route("/news", newsRoutes)
-  .route("/portfolio", portfolioRoutes);
+  .route("/portfolio", portfolioRoutes)
+  .route("/advisor", advisorRoutes)
+  .route("/rag", ragRoutes);
 
 // Auto-process pending orders on server startup if market is open
 (async () => {
@@ -51,6 +60,42 @@ const routes = app
     console.error("Error in startup pending order check:", error);
   }
 })();
+
+// Periodic RAG refresh from active portfolio symbols.
+const shouldAutoRefreshRag = process.env.RAG_AUTO_REFRESH_ENABLED === "true";
+const ragRefreshIntervalMinutes = Number(process.env.RAG_AUTO_REFRESH_INTERVAL_MINUTES || 720);
+const ragRefreshMode = (process.env.RAG_REFRESH_MODE || "mvp-universe").toLowerCase();
+const ragRefreshMaxTickers = Math.max(1, Number(process.env.RAG_REFRESH_MAX_TICKERS || 10));
+
+if (shouldAutoRefreshRag && !globalForRagScheduler.ragRefreshInitialized) {
+  globalForRagScheduler.ragRefreshInitialized = true;
+  const intervalMs = Math.max(60, ragRefreshIntervalMinutes) * 60 * 1000;
+
+  const runRagRefresh = async () => {
+    try {
+      const summary = ragRefreshMode === "active-portfolio"
+        ? await RAGService.refreshActivePortfolioTickers(ragRefreshMaxTickers)
+        : await RAGService.refreshMvpUniverseTickers(ragRefreshMaxTickers);
+
+      if (summary.tickers.length > 0) {
+        console.log(
+          `[RAG Refresh] mode=${ragRefreshMode} tickers=${summary.tickers.join(",")}, inserted=${summary.results.reduce((acc, r) => acc + r.chunksInserted, 0)}, skippedDocs=${summary.results.reduce((acc, r) => acc + r.documentsSkipped, 0)}`
+        );
+      } else {
+        console.log(`[RAG Refresh] No tickers found for mode=${ragRefreshMode}.`);
+      }
+    } catch (error) {
+      console.error("[RAG Refresh] Failed:", error);
+    }
+  };
+
+  setTimeout(runRagRefresh, 10_000);
+  setInterval(runRagRefresh, intervalMs);
+} else if (shouldAutoRefreshRag) {
+  console.log("[RAG Refresh] Scheduler already initialized; skipping duplicate registration.");
+} else {
+  console.log("[RAG Refresh] Auto-refresh is disabled. Runtime ingestion can still be enabled via RAG_QUERY_INGEST_ENABLED=true.");
+}
 
 export type AppType = typeof routes;
 export default app;

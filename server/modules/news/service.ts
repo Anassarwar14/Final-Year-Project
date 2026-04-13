@@ -2,6 +2,79 @@ import { marketDataService } from "../../services/marketDataService";
 import { alphaVantageService } from "../../services/alphaVantageService";
 import { prisma } from "../../lib/db";
 
+function toAlphaTimestamp(unixSeconds: number): string {
+  const d = new Date(unixSeconds * 1000);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`;
+}
+
+function normalizeFinnhubNews(articles: any[], relatedTicker?: string) {
+  return (articles || []).map((item: any) => ({
+    title: item.headline || "Untitled Article",
+    url: item.url,
+    time_published: toAlphaTimestamp(item.datetime || Math.floor(Date.now() / 1000)),
+    authors: [],
+    summary: item.summary || "",
+    source: item.source || "Unknown",
+    banner_image: item.image || "",
+    category_within_source: item.category || "general",
+    overall_sentiment_score: 0,
+    overall_sentiment_label: "Neutral",
+    topics: [],
+    ticker_sentiment: relatedTicker
+      ? [
+          {
+            ticker: relatedTicker,
+            relevance_score: "0.5",
+            ticker_sentiment_score: "0",
+            ticker_sentiment_label: "Neutral",
+          },
+        ]
+      : [],
+  }));
+}
+
+function buildSyntheticMarketNews(): any[] {
+  const symbols = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META"];
+  const now = Math.floor(Date.now() / 1000);
+  return symbols.map((symbol, idx) => ({
+    title: `${symbol} market update: intraday volatility in focus`,
+    url: `https://finance.yahoo.com/quote/${symbol}`,
+    time_published: toAlphaTimestamp(now - idx * 900),
+    authors: ["Market Desk"],
+    summary: `Live market data providers are temporarily rate-limited. Open this symbol page for the latest quote, chart, and headlines while the feed refreshes.`,
+    source: "Wealth Fallback Feed",
+    banner_image: "",
+    category_within_source: "general",
+    overall_sentiment_score: 0,
+    overall_sentiment_label: "Neutral",
+    topics: [],
+    ticker_sentiment: [
+      {
+        ticker: symbol,
+        relevance_score: "0.6",
+        ticker_sentiment_score: "0",
+        ticker_sentiment_label: "Neutral",
+      },
+    ],
+  }));
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
 export const newsService = {
   /**
    * Get general market news using Alpha Vantage News & Sentiment
@@ -30,15 +103,49 @@ export const newsService = {
       
       // If no articles, try Finnhub fallback
       console.log("No articles from Alpha Vantage, trying Finnhub fallback");
-      return await marketDataService.getMarketNews(category);
+      const finnhubNews = await withTimeout(
+        marketDataService.getMarketNews(category),
+        2000,
+        "Finnhub market news"
+      ).catch(() => []);
+      if (finnhubNews.length > 0) {
+        return normalizeFinnhubNews(finnhubNews);
+      }
+
+      // Final fallback: aggregate company news from liquid symbols.
+      const fallbackSymbols = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"];
+      const todayIso = new Date().toISOString().split("T")[0];
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const perSymbol = await Promise.allSettled(
+        fallbackSymbols.map((symbol) =>
+          withTimeout(
+            marketDataService.getCompanyNews(symbol, oneWeekAgo, todayIso),
+            2000,
+            `Finnhub company news ${symbol}`
+          ).catch(() => [])
+        )
+      );
+      const flattened = perSymbol
+        .filter((r): r is PromiseFulfilledResult<any[]> => r.status === "fulfilled")
+        .flatMap((r) => r.value)
+        .slice(0, 50);
+
+      const normalized = normalizeFinnhubNews(flattened);
+      return normalized.length > 0 ? normalized : buildSyntheticMarketNews();
     } catch (error) {
       console.error("Error fetching Alpha Vantage news:", error);
       // Fallback to Finnhub
       try {
-        return await marketDataService.getMarketNews(category);
+        const finnhubNews = await withTimeout(
+          marketDataService.getMarketNews(category),
+          2000,
+          "Finnhub market news fallback"
+        ).catch(() => []);
+        const normalized = normalizeFinnhubNews(finnhubNews);
+        return normalized.length > 0 ? normalized : buildSyntheticMarketNews();
       } catch (fallbackError) {
         console.error("Finnhub fallback also failed:", fallbackError);
-        return [];
+        return buildSyntheticMarketNews();
       }
     }
   },
@@ -137,6 +244,29 @@ export const newsService = {
             ),
           }));
           console.log(`[NEWS SERVICE] Got ${holdingsNews.length} holdings news`);
+
+          if (holdingsNews.length === 0) {
+            const fromDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+            const toDate = new Date().toISOString().split("T")[0];
+            const fallback = await Promise.allSettled(
+              holdingSymbols.slice(0, 5).map((symbol) =>
+                withTimeout(
+                  marketDataService.getCompanyNews(symbol, fromDate, toDate),
+                  2000,
+                  `Holdings company news ${symbol}`
+                ).catch(() => [])
+              )
+            );
+            holdingsNews = fallback
+              .filter((r): r is PromiseFulfilledResult<any[]> => r.status === "fulfilled")
+              .flatMap((r) => r.value)
+              .slice(0, 50)
+              .map((article: any) => ({
+                ...normalizeFinnhubNews([article])[0],
+                inHoldings: true,
+                relevantTickers: [],
+              }));
+          }
         } catch (error) {
           console.error('[NEWS SERVICE] Failed to fetch holdings news:', error);
         }
@@ -162,6 +292,29 @@ export const newsService = {
             ),
           }));
           console.log(`[NEWS SERVICE] Got ${watchlistNews.length} watchlist news`);
+
+          if (watchlistNews.length === 0) {
+            const fromDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+            const toDate = new Date().toISOString().split("T")[0];
+            const fallback = await Promise.allSettled(
+              watchlistSymbols.slice(0, 5).map((symbol) =>
+                withTimeout(
+                  marketDataService.getCompanyNews(symbol, fromDate, toDate),
+                  2000,
+                  `Watchlist company news ${symbol}`
+                ).catch(() => [])
+              )
+            );
+            watchlistNews = fallback
+              .filter((r): r is PromiseFulfilledResult<any[]> => r.status === "fulfilled")
+              .flatMap((r) => r.value)
+              .slice(0, 30)
+              .map((article: any) => ({
+                ...normalizeFinnhubNews([article])[0],
+                inWatchlist: true,
+                relevantTickers: [],
+              }));
+          }
         } catch (error) {
           console.error('[NEWS SERVICE] Failed to fetch watchlist news:', error);
         }

@@ -56,22 +56,26 @@ export default function PortfolioPage() {
   const totalPnLPercent = analytics?.totalUnrealizedPnLPercent || 0;
 
   return (
-    <div className="flex-1 space-y-6 p-6">
+    <div className="flex-1 space-y-6 bg-[radial-gradient(circle_at_top_left,_hsl(var(--primary)/0.12),_transparent_35%),radial-gradient(circle_at_90%_0%,_hsl(var(--chart-1)/0.12),_transparent_30%)] p-6">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-primary/20 pb-4">
+      <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-card/90 p-4 shadow-sm backdrop-blur">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             Real Portfolio
-            <span className="text-sm font-normal px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/30">
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-normal text-primary">
               Live Trading
             </span>
           </h1>
-          <p className="text-muted-foreground mt-1">Track your real-world investments and performance</p>
+          <p className="mt-1 text-muted-foreground">Track your real-world investments with live pricing and advisor-ready context.</p>
         </div>
-        <Button onClick={handleRefresh} variant="outline" disabled={refreshing}>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => router.push("/dashboard/portfolio/analytics")}>Analytics</Button>
+          <Button variant="outline" onClick={() => router.push("/dashboard/portfolio/holdings")}>Holdings</Button>
+          <Button onClick={handleRefresh} variant="outline" disabled={refreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
           Refresh
-        </Button>
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -99,7 +103,7 @@ export default function PortfolioPage() {
               ${cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {((cashBalance / totalValue) * 100).toFixed(1)}% of portfolio
+              {(totalValue > 0 ? (cashBalance / totalValue) * 100 : 0).toFixed(1)}% of portfolio
             </p>
           </CardContent>
         </Card>

@@ -77,10 +77,30 @@ model User {
   // --- New Relations for FYP Modules ---
   portfolios         Portfolio[]
   simulatorProfile   SimulatorProfile? // One-to-one
+  investorProfile    InvestorProfile?  // One-to-one
   learningProgress   LearningProgress[]
   aiChatSessions     AiChatSession[]
 
   @@map("user") // <--- Add this line
+}
+
+// --- Investor Profile (AI Advisor Personalization) ---
+model InvestorProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  riskTolerance      String   @default("moderate") // conservative, moderate, aggressive
+  investmentGoal     String   @default("growth")   // income, growth, capital_preservation, speculation
+  investmentHorizon  String   @default("medium")   // short (0-3y), medium (3-10y), long (10y+)
+  
+  experienceLevel    String   @default("beginner") // beginner, intermediate, advanced
+  preferredSectors   String[] @default([])         // JSON array alternative if supported natively by db
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("investor_profile")
 }
 
 

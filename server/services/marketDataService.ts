@@ -1,4 +1,5 @@
-import * as finnhub from "finnhub";
+// import * as finnhub from "finnhub";
+const finnhub = require("finnhub"); 
 import { redis, CACHE_KEYS, CACHE_TTL } from "../lib/redis";
 
 // Initialize Finnhub API client
