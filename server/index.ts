@@ -15,6 +15,8 @@ const globalForRagScheduler = globalThis as unknown as {
   ragRefreshInitialized?: boolean;
 };
 
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
 const app = new Hono().basePath("/api");
 
 const routes = app
@@ -26,40 +28,45 @@ const routes = app
   .route("/advisor", advisorRoutes)
   .route("/rag", ragRoutes);
 
-// Auto-process pending orders on server startup if market is open
-(async () => {
-  try {
-    console.log("Checking for pending orders to process on startup...");
-    const marketStatus = await alphaVantageService.getMarketStatus();
-    
-    if (marketStatus.isOpen) {
-      console.log("Market is OPEN - processing all pending orders...");
-      
-      // Find all users with pending orders
-      const pendingOrders = await prisma.simulatorTransaction.findMany({
-        where: { pending: true },
-        include: { profile: true },
-        distinct: ['profileId'],
-      });
-      
-      const uniqueUserIds = [...new Set(pendingOrders.map(o => o.profile.userId))];
-      console.log(`Found pending orders for ${uniqueUserIds.length} user(s)`);
-      
-      for (const userId of uniqueUserIds) {
-        try {
-          const result = await tradingService.processPendingOrders(userId);
-          console.log(`User ${userId}: Processed ${result.processed} orders, Failed ${result.failed}`);
-        } catch (error) {
-          console.error(`Error processing orders for user ${userId}:`, error);
+// Auto-process pending orders on server startup if market is open.
+// Skip during Next build to avoid network/db side effects at compile time.
+if (!isBuildPhase) {
+  (async () => {
+    try {
+      console.log("Checking for pending orders to process on startup...");
+      const marketStatus = await alphaVantageService.getMarketStatus();
+
+      if (marketStatus.isOpen) {
+        console.log("Market is OPEN - processing all pending orders...");
+
+        // Find all users with pending orders
+        const pendingOrders = await prisma.simulatorTransaction.findMany({
+          where: { pending: true },
+          include: { profile: true },
+          distinct: ["profileId"],
+        });
+
+        const uniqueUserIds = [...new Set(pendingOrders.map((o) => o.profile.userId))];
+        console.log(`Found pending orders for ${uniqueUserIds.length} user(s)`);
+
+        for (const userId of uniqueUserIds) {
+          try {
+            const result = await tradingService.processPendingOrders(userId);
+            console.log(`User ${userId}: Processed ${result.processed} orders, Failed ${result.failed}`);
+          } catch (error) {
+            console.error(`Error processing orders for user ${userId}:`, error);
+          }
         }
+      } else {
+        console.log("Market is CLOSED - pending orders will be processed when market opens");
       }
-    } else {
-      console.log("Market is CLOSED - pending orders will be processed when market opens");
+    } catch (error) {
+      console.error("Error in startup pending order check:", error);
     }
-  } catch (error) {
-    console.error("Error in startup pending order check:", error);
-  }
-})();
+  })();
+} else {
+  console.log("Skipping startup pending-order check during build phase.");
+}
 
 // Periodic RAG refresh from active portfolio symbols.
 const shouldAutoRefreshRag = process.env.RAG_AUTO_REFRESH_ENABLED === "true";
@@ -67,7 +74,7 @@ const ragRefreshIntervalMinutes = Number(process.env.RAG_AUTO_REFRESH_INTERVAL_M
 const ragRefreshMode = (process.env.RAG_REFRESH_MODE || "mvp-universe").toLowerCase();
 const ragRefreshMaxTickers = Math.max(1, Number(process.env.RAG_REFRESH_MAX_TICKERS || 10));
 
-if (shouldAutoRefreshRag && !globalForRagScheduler.ragRefreshInitialized) {
+if (!isBuildPhase && shouldAutoRefreshRag && !globalForRagScheduler.ragRefreshInitialized) {
   globalForRagScheduler.ragRefreshInitialized = true;
   const intervalMs = Math.max(60, ragRefreshIntervalMinutes) * 60 * 1000;
 
@@ -91,8 +98,10 @@ if (shouldAutoRefreshRag && !globalForRagScheduler.ragRefreshInitialized) {
 
   setTimeout(runRagRefresh, 10_000);
   setInterval(runRagRefresh, intervalMs);
-} else if (shouldAutoRefreshRag) {
+} else if (!isBuildPhase && shouldAutoRefreshRag) {
   console.log("[RAG Refresh] Scheduler already initialized; skipping duplicate registration.");
+} else if (isBuildPhase) {
+  console.log("[RAG Refresh] Skipping scheduler registration during build phase.");
 } else {
   console.log("[RAG Refresh] Auto-refresh is disabled. Runtime ingestion can still be enabled via RAG_QUERY_INGEST_ENABLED=true.");
 }
