@@ -1,6 +1,9 @@
 import Groq from "groq-sdk";
 import { prisma } from "../../lib/db";
 import { portfolioService } from "../portfolio/service";
+import { tradingService } from "../trading/service";
+import { RAGService } from "../rag/service";
+import { marketDataService } from "../../services/marketDataService";
 
 // Initialize Groq client
 const groq = new Groq({
@@ -20,59 +23,497 @@ interface ChatMessage {
 
 interface ChatContext {
   userId: string;
+  ragContext?: string;
   portfolioData?: any;
   marketData?: any;
   includePortfolio?: boolean;
 }
 
+interface RetrievalSource {
+  id: string;
+  sourceType: string;
+  documentType: string;
+  ticker?: string;
+  source?: string;
+  publishedAt?: string;
+  similarity: number;
+  snippet: string;
+}
+
+interface RetrievalMeta {
+  query: string;
+  expandedQuery: string;
+  expanded: boolean;
+  matchCount: number;
+  rerankApplied?: boolean;
+  intent?: string;
+  entities?: string[];
+  timeRange?: string;
+  dataNeeded?: string[];
+  isRealTime?: boolean;
+  guardrailsApplied?: string[];
+}
+
+interface IntentClassification {
+  intent: "company_analysis" | "market_data" | "general_concept" | "comparison" | "portfolio";
+  entities: string[];
+  time_range: "last_quarter" | "last_year" | "real_time" | "all";
+  data_needed: string[];
+  is_real_time: boolean;
+}
+
 export class AdvisorService {
+  private extractLikelySymbols(text: string): string[] {
+    const symbols = text.match(/\b[A-Z]{1,5}\b/g) || [];
+    return Array.from(new Set(symbols));
+  }
+
+  private fallbackIntent(userMessage: string, defaultEntities: string[] = []): IntentClassification {
+    const lower = userMessage.toLowerCase();
+    const entities = this.extractLikelySymbols(userMessage).length
+      ? this.extractLikelySymbols(userMessage)
+      : defaultEntities;
+
+    const isPortfolio = /portfolio|holdings|allocation|rebalance|my positions/.test(lower);
+    const isConcept = /what is|explain|define|meaning of|how does/.test(lower);
+    const isComparison = /compare|vs\.?|versus/.test(lower);
+    const isRealtime = /right now|today|current|live|real[- ]?time|now/.test(lower);
+
+    let intent: IntentClassification["intent"] = "company_analysis";
+    if (isPortfolio) intent = "portfolio";
+    else if (isConcept) intent = "general_concept";
+    else if (isComparison) intent = "comparison";
+    else if (isRealtime) intent = "market_data";
+
+    const dataNeeded = isConcept
+      ? ["education"]
+      : isRealtime
+      ? ["price", "news", "financials"]
+      : ["financials", "news", "sec_filing"];
+
+    return {
+      intent,
+      entities,
+      time_range: isRealtime ? "real_time" : "all",
+      data_needed: dataNeeded,
+      is_real_time: isRealtime,
+    };
+  }
+
+  private async classifyIntent(userMessage: string, defaultEntities: string[] = []): Promise<IntentClassification> {
+    if (!process.env.GROQ_API_KEY) {
+      return this.fallbackIntent(userMessage, defaultEntities);
+    }
+
+    const fallback = this.fallbackIntent(userMessage, defaultEntities);
+
+    try {
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.1-8b-instant",
+        temperature: 0,
+        max_tokens: 220,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Classify a finance query and return STRICT JSON only with keys: intent, entities, time_range, data_needed, is_real_time. intents: company_analysis|market_data|general_concept|comparison|portfolio. time_range: last_quarter|last_year|real_time|all. entities should be uppercase ticker-like strings if present.",
+          },
+          {
+            role: "user",
+            content: userMessage,
+          },
+        ],
+      });
+
+      const raw = completion.choices[0]?.message?.content || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return fallback;
+
+      const parsed = JSON.parse(jsonMatch[0]) as Partial<IntentClassification>;
+      const entities = Array.from(
+        new Set((parsed.entities || fallback.entities).map((e) => String(e).toUpperCase()).filter(Boolean))
+      );
+
+      return {
+        intent: (parsed.intent as IntentClassification["intent"]) || fallback.intent,
+        entities,
+        time_range: (parsed.time_range as IntentClassification["time_range"]) || fallback.time_range,
+        data_needed: Array.isArray(parsed.data_needed) && parsed.data_needed.length
+          ? parsed.data_needed.map((d) => String(d).toLowerCase())
+          : fallback.data_needed,
+        is_real_time: typeof parsed.is_real_time === "boolean" ? parsed.is_real_time : fallback.is_real_time,
+      };
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  private resolveDateRange(timeRange: IntentClassification["time_range"]): { dateFrom?: string; dateTo?: string } {
+    const now = new Date();
+    const dateTo = now.toISOString();
+
+    if (timeRange === "last_quarter") {
+      const from = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      return { dateFrom: from, dateTo };
+    }
+
+    if (timeRange === "last_year") {
+      const from = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString();
+      return { dateFrom: from, dateTo };
+    }
+
+    return {};
+  }
+
+  private resolveSourceTypeFilters(classification: IntentClassification): string[] | undefined {
+    const map = new Map<string, string[]>([
+      ["financials", ["financials", "company_profile", "sec_filing"]],
+      ["news", ["news"]],
+      ["price", ["financials", "company_profile"]],
+      ["ratios", ["financials", "sec_filing"]],
+      ["sec_filing", ["sec_filing"]],
+      ["education", ["company_profile", "financials"]],
+    ]);
+
+    const sourceTypes = new Set<string>();
+    for (const need of classification.data_needed || []) {
+      const mapped = map.get(need);
+      if (mapped) mapped.forEach((item) => sourceTypes.add(item));
+    }
+
+    return sourceTypes.size ? Array.from(sourceTypes) : undefined;
+  }
+
+  private async buildRealtimeContext(classification: IntentClassification): Promise<string> {
+    if (!classification.is_real_time || classification.entities.length === 0) {
+      return "";
+    }
+
+    const symbols = classification.entities.slice(0, 3);
+    const blocks = await Promise.all(
+      symbols.map(async (symbol) => {
+        try {
+          const [quote, news] = await Promise.all([
+            marketDataService.getRealtimeQuote(symbol),
+            marketDataService.getCompanyNews(
+              symbol,
+              new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+              new Date().toISOString().split("T")[0]
+            ),
+          ]);
+
+          const quoteLine = quote
+            ? `${symbol}: $${(quote.c || 0).toFixed(2)} (${(quote.dp || 0).toFixed(2)}%) | Day H/L: $${(quote.h || 0).toFixed(2)} / $${(quote.l || 0).toFixed(2)}`
+            : `${symbol}: quote unavailable`;
+
+          const topNews = (news || []).slice(0, 2).map((item) => `- ${item.headline}`).join("\n");
+          return `${quoteLine}${topNews ? `\nRecent headlines:\n${topNews}` : ""}`;
+        } catch (_error) {
+          return `${symbol}: real-time data unavailable`;
+        }
+      })
+    );
+
+    return blocks.filter(Boolean).join("\n\n");
+  }
+
+  private parseStoredSource(rawSource: string): RetrievalSource {
+    try {
+      const parsed = JSON.parse(rawSource) as Partial<RetrievalSource>;
+      if (parsed && typeof parsed === "object") {
+        return {
+          id: parsed.id || rawSource,
+          sourceType: parsed.sourceType || "unknown",
+          documentType: parsed.documentType || "unknown",
+          ticker: parsed.ticker,
+          source: parsed.source,
+          publishedAt: parsed.publishedAt,
+          similarity: parsed.similarity ?? 0,
+          snippet: parsed.snippet || "",
+        };
+      }
+    } catch (_error) {
+      // Legacy source strings are still valid and mapped to a minimal source object.
+    }
+
+    return {
+      id: rawSource,
+      sourceType: "legacy",
+      documentType: "legacy",
+      source: rawSource,
+      similarity: 0,
+      snippet: "",
+    };
+  }
+
+  private serializeSourcesForStorage(sources: RetrievalSource[]): string[] {
+    return sources.map((source) => JSON.stringify(source));
+  }
+
+  private buildGuardrailAppendix(
+    userMessage: string,
+    sources: RetrievalSource[],
+    retrievalMeta: RetrievalMeta
+  ): { appendix: string; flags: string[] } {
+    const flags: string[] = [];
+    const lower = userMessage.toLowerCase();
+    const asksTradeAction = /\b(buy|sell|short|hold|allocate|rebalance|price target|entry|exit)\b/.test(lower);
+
+    let appendix = '';
+
+    if (asksTradeAction && sources.length === 0) {
+      flags.push('insufficient_evidence_for_trade_signal');
+      appendix += '\n\n### Confidence Note\nI could not retrieve enough verified supporting context for a high-confidence trade signal right now. Treat this as directional guidance and verify with fresh filings, news, and live quotes before executing.';
+    }
+
+    if (retrievalMeta.isRealTime) {
+      flags.push('real_time_volatility_notice');
+    }
+
+    flags.push('educational_disclaimer');
+
+    return { appendix, flags };
+  }
+
+  private async buildRagContext(
+    userId: string,
+    userMessage: string,
+    includePortfolio: boolean
+  ): Promise<{ ragContextStr: string; sources: RetrievalSource[]; retrievalMeta: RetrievalMeta; marketDataStr: string }> {
+    let expandedQuery = userMessage;
+    const symbolsToPrime = new Set<string>();
+
+    if (includePortfolio) {
+      const simProfile = await tradingService.getProfile(userId).catch(() => null);
+      if (simProfile && simProfile.holdings && simProfile.holdings.length > 0) {
+        const holdingSymbols = simProfile.holdings
+              .map((h: any) => h.symbol || h.asset?.symbol)
+              .filter(Boolean)
+              .join(" ");
+        simProfile.holdings
+          .map((h: any) => h.symbol || h.asset?.symbol)
+          .filter(Boolean)
+          .forEach((symbol: string) => symbolsToPrime.add(String(symbol).toUpperCase()));
+        if (holdingSymbols) {
+          expandedQuery += ` ${holdingSymbols}`;
+        }
+      }
+    }
+
+    const querySymbols = expandedQuery.match(/\b[A-Z]{1,5}\b/g) || [];
+    querySymbols.forEach((symbol) => symbolsToPrime.add(symbol));
+
+    const classification = await this.classifyIntent(userMessage, Array.from(symbolsToPrime));
+    classification.entities.forEach((symbol) => symbolsToPrime.add(symbol));
+
+    const queryIngestionEnabled = process.env.RAG_QUERY_INGEST_ENABLED === "true";
+    if (queryIngestionEnabled && symbolsToPrime.size > 0) {
+      // Fire-and-forget warm-up so chat responses do not block on ingestion latency.
+      void Promise.allSettled(
+        Array.from(symbolsToPrime)
+          .slice(0, 3)
+          .map((symbol) => RAGService.ensureTickerContextFresh(symbol))
+      );
+    }
+
+    const sourceTypeFilters = this.resolveSourceTypeFilters(classification);
+    const timeRange = this.resolveDateRange(classification.time_range);
+    const primaryTicker = classification.entities[0] || Array.from(symbolsToPrime)[0];
+
+    const ragDocs = await RAGService.searchSimilarDocuments(expandedQuery, 7, undefined, {
+      ticker: primaryTicker,
+      sourceTypes: sourceTypeFilters,
+      dateFrom: timeRange.dateFrom,
+      dateTo: timeRange.dateTo,
+    });
+    const marketDataStr = await this.buildRealtimeContext(classification);
+
+    if (!ragDocs || ragDocs.length === 0) {
+      return {
+        ragContextStr: "",
+        sources: [],
+        marketDataStr,
+        retrievalMeta: {
+          query: userMessage,
+          expandedQuery,
+          expanded: expandedQuery !== userMessage,
+          matchCount: 0,
+          rerankApplied: true,
+          intent: classification.intent,
+          entities: classification.entities,
+          timeRange: classification.time_range,
+          dataNeeded: classification.data_needed,
+          isRealTime: classification.is_real_time,
+        },
+      };
+    }
+
+    const sourcesById = new Map<string, RetrievalSource>();
+    const ragContextStr = ragDocs
+      .map((doc: any, idx: number) => {
+        const sourceType = doc.sourceType || doc.metadata?.type || "unknown";
+        const documentType = doc.documentType || doc.metadata?.type || "unknown";
+        const ticker = doc.ticker || doc.metadata?.ticker;
+        const source = doc.source || doc.metadata?.source;
+        const publishedAt = doc.publishedAt || (doc.metadata?.date
+          ? new Date(Number(doc.metadata.date) * 1000).toISOString()
+          : undefined);
+        const sourceId = `${doc.id || "doc"}-${source || ticker || idx}`;
+
+        sourcesById.set(sourceId, {
+          id: sourceId,
+          sourceType,
+          documentType,
+          ticker,
+          source,
+          publishedAt,
+          similarity: doc.similarity ?? 0,
+          snippet: doc.content?.slice(0, 260) || "",
+        });
+
+        return `[Doc ${idx + 1}] (${sourceType} - ${ticker || "general"}, similarity ${(doc.similarity ?? 0).toFixed(3)}): ${doc.content}`;
+      })
+      .join("\n\n");
+
+    return {
+      ragContextStr,
+      sources: Array.from(sourcesById.values()),
+      marketDataStr,
+      retrievalMeta: {
+        query: userMessage,
+        expandedQuery,
+        expanded: expandedQuery !== userMessage,
+        matchCount: ragDocs.length,
+        rerankApplied: true,
+        intent: classification.intent,
+        entities: classification.entities,
+        timeRange: classification.time_range,
+        dataNeeded: classification.data_needed,
+        isRealTime: classification.is_real_time,
+      },
+    };
+  }
+
   /**
    * Generate system prompt with user context for personalized advice
    */
   private async generateSystemPrompt(context: ChatContext): Promise<string> {
-    let systemPrompt = `You are an expert AI Financial Advisor with deep knowledge in:
-- Portfolio analysis and optimization
-- Market trends and technical analysis
-- Risk management and diversification
-- Investment strategies (value, growth, dividend, etc.)
-- Fundamental analysis and company valuation
-- Asset allocation and rebalancing
-- Tax-efficient investing strategies
+    let systemPrompt = `You are an elite AI Financial Advisor and Wealth Manager with deep expertise in macroeconomics, portfolio optimization, technical/fundamental analysis, risk management, and SEC filings.
 
-Your responses should be:
-- Professional yet conversational
-- Data-driven with specific recommendations
-- Personalized based on the user's portfolio and goals
-- Clear about risks and uncertainties
-- Actionable with specific steps
+VOICE AND TONE RULES:
+1. Address the user directly as "you". Never refer to "the user" in third person.
+2. Do NOT start responses with fixed boilerplate (for example, do not always open with the same disclaimer sentence).
+3. Keep safety and uncertainty language concise and natural. Avoid repetitive disclaimer paragraphs.
 
-When analyzing stocks, consider: fundamentals, technicals, sector trends, market conditions, and risk factors.
-Always disclose when advice is general vs. specific to their portfolio.
-Format responses in markdown for better readability.
-Use bullet points, headings, and tables when appropriate.`;
+CORE DIRECTIVES:
+1. Base recommendations on available Investor Profile data (risk tolerance, horizon, goals, sectors) and portfolio holdings.
+2. If portfolio/profile data is present, give specific and quantitative actions (buy/sell/hold/rebalance with concrete sizing ideas).
+3. If profile or portfolio data is missing, ask for only the missing inputs needed for personalization.
+4. When profile data is missing, explicitly ask the user to complete their profile by clicking the "Profile Incomplete" badge at the top of the chat page.
+5. Synthesize Retrieved Financial Context (RAG data like 10-K forms, news, and company profiles) and cite exact facts/metrics from that context.
+6. Distinguish time-sensitive market facts from longer-horizon fundamentals.
+7. Format clearly with concise Markdown sections, bullets, and tables when useful.`;
+
+    let hasInvestorProfile = false;
+    let profileNeedsCompletion = false;
+    let hasPortfolioData = false;
 
     // Add user's portfolio context if requested
     if (context.includePortfolio) {
       try {
-        const portfolio = await portfolioService.getPortfolioOverview(context.userId);
+        // We prioritize the Trading Simulator profile since it's the most active
+        let portfolioData: any = null;
+        try {
+          const simProfile = await tradingService.getProfile(context.userId);
+          if (simProfile && simProfile.holdings && simProfile.holdings.length > 0) {
+            portfolioData = simProfile;
+          }
+        } catch (e) {}
+
+        if (!portfolioData) {
+          try {
+            const realPortfolio = await portfolioService.getEnhancedPortfolio(context.userId);
+            if (realPortfolio) {
+              portfolioData = realPortfolio.profile;
+              portfolioData.holdings = realPortfolio.holdings;
+              portfolioData.analytics = realPortfolio.analytics;
+            }
+          } catch(e) {}
+        }
+
+        const investorProfile = await prisma.investorProfile.findUnique({
+          where: { userId: context.userId }
+        });
         
-        if (portfolio) {
-          systemPrompt += `\n\n## User's Current Portfolio:
-**Total Value:** $${portfolio.totalValue.toFixed(2)}
-**Cash Balance:** $${portfolio.cashBalance.toFixed(2)}
-**Total P&L:** ${portfolio.totalPnL >= 0 ? '+' : ''}$${portfolio.totalPnL.toFixed(2)} (${portfolio.totalPnLPercent.toFixed(2)}%)
-**Holdings:** ${portfolio.holdings.length} positions
+        if (investorProfile) {
+          const defaultLikeProfile =
+            investorProfile.experienceLevel?.toLowerCase() === "beginner" &&
+            (!investorProfile.preferredSectors || investorProfile.preferredSectors.length === 0);
 
-### Current Holdings:
-${portfolio.holdings.map((h: any) => 
-  `- **${h.symbol}**: ${h.quantity} shares @ $${h.averagePrice.toFixed(2)} | Current: $${h.currentPrice.toFixed(2)} | P&L: ${h.unrealizedPnL >= 0 ? '+' : ''}$${h.unrealizedPnL.toFixed(2)} (${h.unrealizedPnLPercent.toFixed(2)}%)`
-).join('\n')}
+          hasInvestorProfile = !defaultLikeProfile;
+          profileNeedsCompletion = defaultLikeProfile;
+          systemPrompt += `\n\n## USER'S INVESTOR PROFILE:
+- **Risk Tolerance:** ${investorProfile.riskTolerance.toUpperCase()}
+- **Investment Goal:** ${investorProfile.investmentGoal.toUpperCase()}
+- **Investment Horizon:** ${investorProfile.investmentHorizon.toUpperCase()}
+- **Experience Level:** ${investorProfile.experienceLevel.toUpperCase()}
+- **Preferred Sectors:** ${investorProfile.preferredSectors.join(', ') || 'Agnostic'}
 
-Use this portfolio data to provide personalized advice specific to their holdings.`;
+>>> CRITICAL: Align every recommendation to this profile. Speak directly to the user as "you".`;
+        }
+
+        if (portfolioData) {
+          hasPortfolioData = true;
+          const totalValue = portfolioData.totalValue || portfolioData.totalValue || 0;
+          const cash = portfolioData.virtualBalance || portfolioData.cashBalance || 0;
+          
+          systemPrompt += `\n\n## USER'S CURRENT PORTFOLIO:
+**Total Portfolio Value:** $${totalValue.toFixed(2)}
+**Available Cash to Invest:** $${cash.toFixed(2)}
+
+### Current Holdings:`;
+          
+          if (!portfolioData.holdings || portfolioData.holdings.length === 0) {
+            systemPrompt += `\n(No active positions. User is holding 100% cash.)`;
+          } else {
+             portfolioData.holdings.forEach((h: any) => {
+              const symbol = h.asset?.symbol || h.symbol;
+              const avgPrice = h.averageBuyPrice || h.averagePrice || 0;
+              const currPrice = h.currentPrice || 0;
+              const pnl = h.unrealizedPnL || 0;
+              const pnlPct = h.unrealizedPnLPercent || 0;
+              
+              systemPrompt += `\n- **${symbol}**: ${h.quantity} shares. Average Buy: $${avgPrice.toFixed(2)} | Current: $${currPrice.toFixed(2)} | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%)`;
+             });
+          }
+          systemPrompt += `\n\n>>> CRITICAL: Base buy/sell analysis on these exact holdings. Tell the user what they should add, trim, or exit based on their stated goals and risk tolerance.`;
         }
       } catch (error) {
         console.error("Error fetching portfolio context:", error);
       }
+    }
+
+    if (!hasInvestorProfile || profileNeedsCompletion) {
+      systemPrompt += `\n\n## PROFILE COMPLETION RULE:
+  The investor profile is missing or incomplete. Before giving detailed allocation advice, ask the user to complete their profile by clicking the "Profile Incomplete" badge at the top. Keep this reminder short and in second person.`;
+    }
+
+    if (!hasPortfolioData) {
+      systemPrompt += `\n\n## MISSING PORTFOLIO RULE:
+No active holdings were found. If the user asks for portfolio-specific actions, ask for current holdings/cash allocation first, then provide a provisional framework.`;
+    }
+
+    if (context.ragContext) {
+      systemPrompt += `\n\n## RETRIEVED FINANCIAL CONTEXT (RAG):
+The following information has been retrieved from our vector database via similarity search. It includes real-time company profiles, news, SEC 10-K / 10-Q forms, and financial metrics.
+--------------------------------------------------
+${context.ragContext}
+--------------------------------------------------
+>>> CRITICAL: You MUST explicitly cite these sources when suggesting trades (e.g. "According to Apple's latest 10-K form..."). Combine this data with what the user is currently holding to suggest re-weightings.`;
+    }
+
+    if (context.marketData) {
+      systemPrompt += `\n\n## REAL-TIME MARKET SNAPSHOT:\n${context.marketData}\n\n>>> CRITICAL: Treat this as time-sensitive context. Distinguish real-time facts from long-horizon filing/fundamental context.`;
     }
 
     return systemPrompt;
@@ -88,7 +529,8 @@ Use this portfolio data to provide personalized advice specific to their holding
     includePortfolio: boolean = true
   ): Promise<{
     message: string;
-    sources: string[];
+    sources: RetrievalSource[];
+    retrievalMeta: RetrievalMeta;
     sessionId: string;
   }> {
     try {
@@ -116,10 +558,32 @@ Use this portfolio data to provide personalized advice specific to their holding
         });
       }
 
+      // Fetch relevant documents using RAG
+      let ragContextStr = "";
+      let marketDataStr = "";
+      let retrievedSources: RetrievalSource[] = [];
+      let retrievalMeta: RetrievalMeta = {
+        query: userMessage,
+        expandedQuery: userMessage,
+        expanded: false,
+        matchCount: 0,
+      };
+      try {
+        const ragData = await this.buildRagContext(userId, userMessage, includePortfolio);
+        ragContextStr = ragData.ragContextStr;
+        marketDataStr = ragData.marketDataStr;
+        retrievedSources = ragData.sources;
+        retrievalMeta = ragData.retrievalMeta;
+      } catch (error) {
+        console.error("Failed to retrieve RAG documents:", error);
+      }
+
       // Generate system prompt with user context
       const systemPrompt = await this.generateSystemPrompt({
         userId,
         includePortfolio,
+        ragContext: ragContextStr,
+        marketData: marketDataStr,
       });
 
       // Build conversation history
@@ -163,13 +627,17 @@ Use this portfolio data to provide personalized advice specific to their holding
       const aiResponse = completion.choices[0]?.message?.content || 
         "I apologize, but I couldn't generate a response. Please try again.";
 
+      const guardrail = this.buildGuardrailAppendix(userMessage, retrievedSources, retrievalMeta);
+      const finalResponse = `${aiResponse}${guardrail.appendix}`;
+      retrievalMeta.guardrailsApplied = guardrail.flags;
+
       // Save AI response to database
       await prisma.aiChatMessage.create({
         data: {
           sessionId: session.id,
           role: "MODEL",
-          content: aiResponse,
-          sources: [], // TODO: Add RAG sources when implemented
+          content: finalResponse,
+          sources: this.serializeSourcesForStorage(retrievedSources),
         },
       });
 
@@ -180,8 +648,9 @@ Use this portfolio data to provide personalized advice specific to their holding
       });
 
       return {
-        message: aiResponse,
-        sources: [], // TODO: Add RAG sources
+        message: finalResponse,
+        sources: retrievedSources,
+        retrievalMeta,
         sessionId: session.id,
       };
     } catch (error) {
@@ -198,7 +667,11 @@ Use this portfolio data to provide personalized advice specific to their holding
     sessionId: string,
     userMessage: string,
     includePortfolio: boolean = true
-  ): Promise<AsyncIterable<string>> {
+  ): Promise<{
+    stream: AsyncIterable<string>;
+    sources: RetrievalSource[];
+    retrievalMeta: RetrievalMeta;
+  }> {
     try {
       // Get or create session
       let session = await prisma.aiChatSession.findUnique({
@@ -223,10 +696,32 @@ Use this portfolio data to provide personalized advice specific to their holding
         });
       }
 
+      // Fetch relevant documents using RAG
+      let ragContextStr = "";
+      let marketDataStr = "";
+      let retrievedSources: RetrievalSource[] = [];
+      let retrievalMeta: RetrievalMeta = {
+        query: userMessage,
+        expandedQuery: userMessage,
+        expanded: false,
+        matchCount: 0,
+      };
+      try {
+        const ragData = await this.buildRagContext(userId, userMessage, includePortfolio);
+        ragContextStr = ragData.ragContextStr;
+        marketDataStr = ragData.marketDataStr;
+        retrievedSources = ragData.sources;
+        retrievalMeta = ragData.retrievalMeta;
+      } catch (error) {
+        console.error("Failed to retrieve RAG documents:", error);
+      }
+
       // Generate system prompt
       const systemPrompt = await this.generateSystemPrompt({
         userId,
         includePortfolio,
+        ragContext: ragContextStr,
+        marketData: marketDataStr,
       });
 
       // Build conversation history
@@ -268,6 +763,7 @@ Use this portfolio data to provide personalized advice specific to their holding
 
       // Collect full response for saving to database
       let fullResponse = "";
+      const serializedSources = this.serializeSourcesForStorage(retrievedSources);
 
       // Create async generator for streaming
       async function* streamGenerator() {
@@ -277,13 +773,20 @@ Use this portfolio data to provide personalized advice specific to their holding
           yield content;
         }
 
+        const guardrail = self.buildGuardrailAppendix(userMessage, retrievedSources, retrievalMeta);
+        retrievalMeta.guardrailsApplied = guardrail.flags;
+        if (guardrail.appendix) {
+          fullResponse += guardrail.appendix;
+          yield guardrail.appendix;
+        }
+
         // Save complete AI response after streaming
         await prisma.aiChatMessage.create({
           data: {
             sessionId: session!.id,
             role: "MODEL",
             content: fullResponse,
-            sources: [],
+            sources: serializedSources,
           },
         });
 
@@ -294,7 +797,12 @@ Use this portfolio data to provide personalized advice specific to their holding
         });
       }
 
-      return streamGenerator();
+      const self = this;
+      return {
+        stream: streamGenerator(),
+        sources: retrievedSources,
+        retrievalMeta,
+      };
     } catch (error) {
       console.error("Error in sendMessageStream:", error);
       throw new Error(`Failed to stream message: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -360,7 +868,7 @@ Use this portfolio data to provide personalized advice specific to their holding
           id: msg.id,
           role: msg.role.toLowerCase(),
           content: msg.content,
-          sources: msg.sources,
+          sources: msg.sources.map((source) => this.parseStoredSource(source)),
           timestamp: msg.createdAt,
         })),
       };
@@ -470,6 +978,39 @@ Use this portfolio data to provide personalized advice specific to their holding
     };
 
     return prompts[action] || prompts.portfolio_analysis;
+  }
+
+  /**
+   * Get user's investor profile
+   */
+  async getProfile(userId: string) {
+    return prisma.investorProfile.findUnique({
+      where: { userId },
+    });
+  }
+
+  /**
+   * Update or create user's investor profile
+   */
+  async upsertProfile(userId: string, data: {
+    riskTolerance?: string;
+    investmentGoal?: string;
+    investmentHorizon?: string;
+    experienceLevel?: string;
+    preferredSectors?: string[];
+  }) {
+    return prisma.investorProfile.upsert({
+      where: { userId },
+      update: data,
+      create: {
+        userId,
+        riskTolerance: data.riskTolerance || "moderate",
+        investmentGoal: data.investmentGoal || "growth",
+        investmentHorizon: data.investmentHorizon || "medium",
+        experienceLevel: data.experienceLevel || "beginner",
+        preferredSectors: data.preferredSectors || [],
+      },
+    });
   }
 }
 

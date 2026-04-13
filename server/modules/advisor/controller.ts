@@ -51,7 +51,7 @@ export class AdvisorController {
       
       if (error instanceof z.ZodError) {
         return c.json(
-          { error: "Invalid request data", details: error.errors },
+          { error: "Invalid request data", details: error.issues },
           400
         );
       }
@@ -98,8 +98,14 @@ export class AdvisorController {
               new TextEncoder().encode(`data: ${JSON.stringify({ type: "session", sessionId: finalSessionId })}\n\n`)
             );
 
+            controller.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify({ type: "sources", sources: messageStream.sources, retrievalMeta: messageStream.retrievalMeta })}\n\n`
+              )
+            );
+
             // Stream the response
-            for await (const chunk of messageStream) {
+            for await (const chunk of messageStream.stream) {
               controller.enqueue(
                 new TextEncoder().encode(`data: ${JSON.stringify({ type: "chunk", content: chunk })}\n\n`)
               );
@@ -135,7 +141,7 @@ export class AdvisorController {
       
       if (error instanceof z.ZodError) {
         return c.json(
-          { error: "Invalid request data", details: error.errors },
+          { error: "Invalid request data", details: error.issues },
           400
         );
       }
@@ -236,7 +242,7 @@ export class AdvisorController {
       
       if (error instanceof z.ZodError) {
         return c.json(
-          { error: "Invalid request data", details: error.errors },
+          { error: "Invalid request data", details: error.issues },
           400
         );
       }
@@ -308,7 +314,7 @@ export class AdvisorController {
       
       if (error instanceof z.ZodError) {
         return c.json(
-          { error: "Invalid request data", details: error.errors },
+          { error: "Invalid request data", details: error.issues },
           400
         );
       }
@@ -317,6 +323,66 @@ export class AdvisorController {
         { error: "Failed to get quick action" },
         500
       );
+    }
+  }
+
+  async getProfile(c: Context) {
+    try {
+      const user = c.get("user");
+      if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+      const profile = await advisorService.getProfile(user.id);
+      
+      // If profile doesn't exist, we return a default structure instead of 404
+      // so the frontend can populate a form
+      if (!profile) {
+        return c.json({
+          success: true,
+          data: {
+            riskTolerance: "moderate",
+            investmentGoal: "growth",
+            investmentHorizon: "medium",
+            experienceLevel: "beginner",
+            preferredSectors: []
+          }
+        });
+      }
+
+      return c.json({ success: true, data: profile });
+    } catch (error) {
+      console.error("Profile fetch error:", error);
+      return c.json({ error: "Failed to create/get profile" }, 500);
+    }
+  }
+
+  async updateProfile(c: Context) {
+    try {
+      const user = c.get("user");
+      if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+      const body = await c.req.json();
+      
+      const UpdateProfileSchema = z.object({
+        riskTolerance: z.string().optional(),
+        investmentGoal: z.string().optional(),
+        investmentHorizon: z.string().optional(),
+        experienceLevel: z.string().optional(),
+        preferredSectors: z.array(z.string()).optional(),
+      });
+
+      const parsed = UpdateProfileSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json(
+          { error: "Invalid input", details: parsed.error.format() },
+          400
+        );
+      }
+
+      const updated = await advisorService.upsertProfile(user.id, parsed.data);
+      return c.json({ success: true, data: updated });
+    } catch (error) {
+      console.error("Profile update error:", error);
+      return c.json({ error: "Failed to update profile" }, 500);
     }
   }
 }

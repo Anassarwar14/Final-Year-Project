@@ -39,4 +39,8 @@ advisorRoutes.delete("/sessions/:id", advisorController.deleteSession.bind(advis
 // Quick actions
 advisorRoutes.post("/quick-action", advisorController.quickAction.bind(advisorController));
 
+// Investor Profile
+advisorRoutes.get("/investor-profile", advisorController.getProfile.bind(advisorController));
+advisorRoutes.put("/investor-profile", advisorController.updateProfile.bind(advisorController));
+
 export default advisorRoutes;

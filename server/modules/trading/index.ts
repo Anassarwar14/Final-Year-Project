@@ -5,6 +5,60 @@ import { alphaVantageService } from "../../services/alphaVantageService";
 import { auth } from "../../lib/auth";
 import { prisma } from "../../lib/db";
 
+function buildTopMoversFromQuotes(quotes: Map<string, any>) {
+  const rows = Array.from(quotes.entries())
+    .map(([symbol, quote]) => ({
+      ticker: symbol,
+      price: String(quote.c ?? 0),
+      change_amount: String(quote.d ?? 0),
+      change_percentage: `${quote.dp ?? 0}%`,
+      volume: "0",
+      _dp: Number(quote.dp ?? 0),
+    }))
+    .filter((row) => Number.isFinite(row._dp));
+
+  const byGainers = [...rows].sort((a, b) => b._dp - a._dp);
+  const byLosers = [...rows].sort((a, b) => a._dp - b._dp);
+  const byActive = [...rows].sort((a, b) => Math.abs(b._dp) - Math.abs(a._dp));
+
+  const stripInternal = (items: typeof rows) =>
+    items.map(({ _dp, ...item }) => item);
+
+  return {
+    top_gainers: stripInternal(byGainers.slice(0, 10)),
+    top_losers: stripInternal(byLosers.slice(0, 10)),
+    most_actively_traded: stripInternal(byActive.slice(0, 10)),
+  };
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+const CURATED_SEARCH_FALLBACK = [
+  { symbol: "AAPL", description: "Apple Inc.", type: "STOCK", exchange: "NASDAQ" },
+  { symbol: "MSFT", description: "Microsoft Corporation", type: "STOCK", exchange: "NASDAQ" },
+  { symbol: "NVDA", description: "NVIDIA Corporation", type: "STOCK", exchange: "NASDAQ" },
+  { symbol: "AMZN", description: "Amazon.com, Inc.", type: "STOCK", exchange: "NASDAQ" },
+  { symbol: "GOOGL", description: "Alphabet Inc. Class A", type: "STOCK", exchange: "NASDAQ" },
+  { symbol: "META", description: "Meta Platforms, Inc.", type: "STOCK", exchange: "NASDAQ" },
+  { symbol: "TSLA", description: "Tesla, Inc.", type: "STOCK", exchange: "NASDAQ" },
+  { symbol: "AMD", description: "Advanced Micro Devices, Inc.", type: "STOCK", exchange: "NASDAQ" },
+  { symbol: "NFLX", description: "Netflix, Inc.", type: "STOCK", exchange: "NASDAQ" },
+  { symbol: "INTC", description: "Intel Corporation", type: "STOCK", exchange: "NASDAQ" },
+];
+
 // Middleware for private routes
 const privateRoutesMiddleware = async (c: any, next: any) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -149,7 +203,7 @@ marketRoutes.get("/search", async (c) => {
       return c.json({ error: "Query parameter 'q' is required" }, 400);
     }
 
-    // Search in database first (only show assets we have)
+    // Search in database first (preferred because metadata quality is higher)
     const dbAssets = await prisma.asset.findMany({
       where: {
         OR: [
@@ -172,7 +226,54 @@ marketRoutes.get("/search", async (c) => {
       exchange: asset.exchange || 'US',
     }));
 
-    return c.json({ results });
+    // Return quickly when DB already has hits to keep UI responsive.
+    if (results.length > 0) {
+      return c.json({ results: results.slice(0, 20) });
+    }
+
+    // Only call external providers when DB has no matches, and bound call time.
+    const [alphaSettled, finnhubSettled] = await Promise.allSettled([
+      withTimeout(alphaVantageService.searchSymbols(query), 1200, "Alpha Vantage symbol search"),
+      withTimeout(marketDataService.searchSymbols(query), 1200, "Finnhub symbol search"),
+    ]);
+
+    const alphaResults = alphaSettled.status === "fulfilled" ? alphaSettled.value : [];
+    const finnhubResults = finnhubSettled.status === "fulfilled" ? finnhubSettled.value : [];
+
+    const merged = [...alphaResults, ...finnhubResults];
+    const deduped = new Map<string, any>();
+
+    for (const item of merged) {
+      const symbol = item?.symbol || item?.displaySymbol;
+      if (!symbol) continue;
+      if (!deduped.has(symbol)) {
+        deduped.set(symbol, {
+          symbol,
+          displaySymbol: item.displaySymbol || symbol,
+          description: item.description || item.name || symbol,
+          type: item.type || "Common Stock",
+          exchange: item.exchange || "US",
+        });
+      }
+    }
+
+    const providerResults = Array.from(deduped.values()).slice(0, 20);
+    if (providerResults.length > 0) {
+      return c.json({ results: providerResults });
+    }
+
+    const q = query.toLowerCase();
+    const curated = CURATED_SEARCH_FALLBACK
+      .filter((item) => item.symbol.toLowerCase().includes(q) || item.description.toLowerCase().includes(q))
+      .map((item) => ({
+        symbol: item.symbol,
+        displaySymbol: item.symbol,
+        description: item.description,
+        type: item.type,
+        exchange: item.exchange,
+      }));
+
+    return c.json({ results: curated.slice(0, 20) });
   } catch (error: any) {
     console.error("Error searching symbols:", error);
     return c.json({ error: "Failed to search symbols" }, 500);
@@ -240,7 +341,22 @@ marketRoutes.get("/news/market", async (c) => {
 // Top movers endpoint (gainers, losers, most active)
 marketRoutes.get("/top-movers", async (c) => {
   try {
-    const data = await alphaVantageService.getTopGainersLosers();
+    let data = await alphaVantageService.getTopGainersLosers();
+
+    const hasMoverData =
+      (Array.isArray(data?.top_gainers) && data.top_gainers.length > 0) ||
+      (Array.isArray(data?.top_losers) && data.top_losers.length > 0) ||
+      (Array.isArray(data?.most_actively_traded) && data.most_actively_traded.length > 0);
+
+    if (!hasMoverData) {
+      const fallbackSymbols = [
+        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "INTC", "JPM", "BAC",
+      ];
+
+      const quotes = await marketDataService.getBatchQuotes(fallbackSymbols);
+      data = buildTopMoversFromQuotes(quotes);
+    }
+
     return c.json(data);
   } catch (error: any) {
     console.error("Error fetching top movers:", error);

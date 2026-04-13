@@ -9,8 +9,33 @@ export interface ChatMessage {
   id: string
   role: "user" | "assistant"
   content: string
-  sources?: string[]
+  sources?: RetrievalSource[]
   timestamp: Date
+}
+
+export interface RetrievalSource {
+  id: string
+  sourceType: string
+  documentType: string
+  ticker?: string
+  source?: string
+  publishedAt?: string
+  similarity: number
+  snippet: string
+}
+
+export interface RetrievalMeta {
+  query: string
+  expandedQuery: string
+  expanded: boolean
+  matchCount: number
+  rerankApplied?: boolean
+  intent?: string
+  entities?: string[]
+  timeRange?: string
+  dataNeeded?: string[]
+  isRealTime?: boolean
+  guardrailsApplied?: string[]
 }
 
 export interface ChatSession {
@@ -33,7 +58,8 @@ export interface SendMessageResponse {
   success: boolean
   data: {
     message: string
-    sources: string[]
+    sources: RetrievalSource[]
+    retrievalMeta: RetrievalMeta
     sessionId: string
   }
 }
@@ -89,7 +115,8 @@ export class AdvisorApiService {
     request: SendMessageRequest,
     onChunk: (chunk: string) => void,
     onComplete: () => void,
-    onError: (error: Error) => void
+    onError: (error: Error) => void,
+    onSources?: (payload: { sources: RetrievalSource[]; retrievalMeta: RetrievalMeta }) => void
   ): Promise<string> {
     try {
       const response = await fetch(`${API_BASE}/api/advisor/chat/stream`, {
@@ -131,6 +158,16 @@ export class AdvisorApiService {
 
             if (data.type === "session") {
               sessionId = data.sessionId
+            } else if (data.type === "sources") {
+              onSources?.({
+                sources: (data.sources || []) as RetrievalSource[],
+                retrievalMeta: (data.retrievalMeta || {
+                  query: request.message,
+                  expandedQuery: request.message,
+                  expanded: false,
+                  matchCount: 0,
+                }) as RetrievalMeta,
+              })
             } else if (data.type === "chunk") {
               onChunk(data.content)
             } else if (data.type === "done") {
@@ -232,6 +269,66 @@ export class AdvisorApiService {
 
     if (!response.ok) {
       throw new Error("Failed to get quick action")
+    }
+
+    return response.json()
+  }
+  /**
+   * Get the current user's investor profile
+   */
+  static async getInvestorProfile(): Promise<{
+    success: boolean
+    data: {
+      riskTolerance: string
+      investmentGoal: string
+      investmentHorizon: string
+      experienceLevel: string
+      preferredSectors: string[]
+    }
+  }> {
+    const response = await fetch(`${API_BASE}/api/advisor/investor-profile`, {
+      method: "GET",
+      credentials: "include",
+    })
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch investor profile")
+    }
+
+    return response.json()
+  }
+
+  /**
+   * Update the current user's investor profile
+   */
+  static async updateInvestorProfile(data: {
+    riskTolerance?: string
+    investmentGoal?: string
+    investmentHorizon?: string
+    experienceLevel?: string
+    preferredSectors?: string[]
+  }): Promise<{
+    success: boolean
+    data: {
+      riskTolerance: string
+      investmentGoal: string
+      investmentHorizon: string
+      experienceLevel: string
+      preferredSectors: string[]
+    }
+  }> {
+    const response = await fetch(`${API_BASE}/api/advisor/investor-profile`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(data),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: "Failed to update profile" }))
+      throw new Error(errorData.error || "Failed to update profile")
     }
 
     return response.json()

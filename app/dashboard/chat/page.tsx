@@ -9,11 +9,40 @@ import { Badge } from "@/components/ui/badge"
 import { Sparkles, TrendingUp, DollarSign, History, X } from "lucide-react"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { motion, AnimatePresence } from "framer-motion"
+import { ProfileSetupModal } from "@/components/profile-setup-modal"
+import { advisorApi } from "@/lib/advisor-api"
+import { useEffect } from "react"
 
 export default function ChatPage() {
   const [showChatSidebar, setShowChatSidebar] = useState(true)
   const [currentChatId, setCurrentChatId] = useState<string | null>(null)
   const [refreshSidebar, setRefreshSidebar] = useState(0)
+  const [profileModalOpen, setProfileModalOpen] = useState(false)
+  const [profileExists, setProfileExists] = useState(false)
+
+  useEffect(() => {
+    // Check if user has an investor profile on load
+    const checkProfile = async () => {
+      try {
+        const res = await advisorApi.getInvestorProfile()
+        if (res.success && res.data) {
+          // You could consider the profile "existing" if they changed anything from the system defaults,
+          // but for now let's say it exists if the API call succeeds.
+          // Since our backend returns defaults instead of null if a row doesn't exist, we might check for an empty array of sectors or similar.
+          const isDefault = res.data.experienceLevel === "beginner" && res.data.preferredSectors.length === 0
+          if (isDefault) {
+            setProfileExists(false)
+            setProfileModalOpen(true) // auto-open on first visit
+          } else {
+            setProfileExists(true)
+          }
+        }
+      } catch (error) {
+        console.error("Failed to check profile status", error)
+      }
+    }
+    checkProfile()
+  }, [])
 
   const handleNewChat = () => {
     setCurrentChatId(null)
@@ -49,17 +78,18 @@ export default function ChatPage() {
                   <Sparkles className="h-3 w-3 mr-1" />
                   RAG Powered
                 </Badge>
+                
+                {/* Profile Status Badge */}
+                <Badge 
+                  variant={profileExists ? "default" : "outline"} 
+                  className={`text-xs cursor-pointer hover:opacity-80 transition-opacity ${!profileExists ? "border-yellow-500 text-yellow-600" : ""}`}
+                  onClick={() => setProfileModalOpen(true)}
+                >
+                  {profileExists ? "Profile Complete" : "Profile Incomplete"}
+                </Badge>
               </div>
             </div>
-            <div className="ml-auto px-4 flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-2 bg-transparent hidden md:flex">
-                <TrendingUp className="h-4 w-4" />
-                Portfolio Analysis
-              </Button>
-              <Button variant="outline" size="sm" className="gap-2 bg-transparent hidden md:flex">
-                <DollarSign className="h-4 w-4" />
-                Market Insights
-              </Button>
+            <div className="ml-auto px-4 flex items-center gap-2">  
               <Button
                 variant={showChatSidebar ? "secondary" : "outline"}
                 size="sm"
@@ -98,6 +128,14 @@ export default function ChatPage() {
           />
         )}
       </SidebarInset>
+
+      <ProfileSetupModal 
+        isOpen={profileModalOpen} 
+        onOpenChange={setProfileModalOpen}
+        onProfileSaved={() => setProfileExists(true)}
+      />
     </>
   )
 }
+
+

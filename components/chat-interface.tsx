@@ -13,7 +13,11 @@ import { Send, User, BarChart3, Lightbulb, Copy, ThumbsUp, ThumbsDown, Bot, Tren
 import { motion, AnimatePresence } from "framer-motion"
 import confetti from "canvas-confetti"
 import { toast } from "sonner"
-import { advisorApi } from "@/lib/advisor-api"
+import { advisorApi, type RetrievalSource, type RetrievalMeta } from "@/lib/advisor-api"
+
+import ReactMarkdown from 'react-markdown'
+const Markdown = ReactMarkdown as any;
+import remarkGfm from 'remark-gfm'
 
 interface Message {
   id: string
@@ -22,6 +26,8 @@ interface Message {
   timestamp: Date
   type?: "text" | "analysis" | "recommendation"
   data?: any
+  sources?: RetrievalSource[]
+  retrievalMeta?: RetrievalMeta
 }
 
 const suggestedQuestions = [
@@ -43,74 +49,6 @@ const initialMessages: Message[] = [
     type: "text",
   },
 ]
-
-// Enhanced markdown parser
-const parseMarkdown = (text: string): string => {
-  let html = text
-    // Headers (scaled for consistent compact sizing)
-    .replace(/^#### (.*$)/gim, '<h4 class="text-xs md:text-sm font-semibold mt-2 mb-1">$1</h4>')
-    .replace(/^### (.*$)/gim, '<h3 class="text-sm md:text-base font-semibold mt-3 mb-2">$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2 class="text-base md:text-lg font-bold mt-4 mb-2">$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1 class="text-lg md:text-xl font-bold mt-5 mb-3">$1</h1>')
-    // Bold
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-    // Numbered lists
-    .replace(/^\d+\.\s+(.*$)/gim, '<li class="ml-6 my-1 text-[13px] md:text-sm">$1</li>')
-    // Bullet lists  
-    .replace(/^[\*\-]\s+(.*$)/gim, '<li class="ml-6 my-1 text-[13px] md:text-sm">$1</li>')
-    // Paragraphs
-    .split('\n\n')
-    .map(block => {
-      if (block.includes('<h') || block.includes('<li')) return block
-      if (block.trim() === '') return '<br/>'
-      return `<p class="my-2 text-[13.5px] md:text-[15px]">${block.replace(/\n/g, '<br/>')}</p>`
-    })
-    .join('\n')
-  
-  // Wrap consecutive <li> in <ul>
-  html = html.replace(/(<li class="ml-6 my-1">.*?<\/li>\s*)+/g, match => `<ul class="list-disc my-2">${match}</ul>`)
-
-  // Simple pipe-table support: convert Markdown tables to HTML
-  // Detect header separator like | --- | --- |
-  if (/^\s*\|\s*[-:]+\s*\|/m.test(html)) {
-    html = html.replace(/((?:^\|.*\|\s*$\n?)+)/gm, (block) => {
-      const rows = block.trim().split(/\n/).filter(r => r.trim())
-      if (rows.length < 2) return block
-      const header = rows[0]
-      const bodyRows = rows.slice(2) // skip separator row
-      const toCells = (row: string) => row
-        .trim()
-        .replace(/^\|/, '')
-        .replace(/\|$/, '')
-        .split(/\|/)
-        .map(c => c.trim())
-      const ths = toCells(header).map(c => `<th class="px-3 py-2 text-xs font-semibold text-muted-foreground">${c}</th>`).join('')
-      const trs = bodyRows.map((r, i) => {
-        const tds = toCells(r).map(c => `<td class="px-3 py-2 text-xs">${c}</td>`).join('')
-        const zebra = i % 2 === 0 ? 'bg-muted/20' : ''
-        return `<tr class="${zebra} hover:bg-muted/40 transition-colors border-b last:border-b-0">${tds}</tr>`
-      }).join('')
-      return `
-        <div class="my-3 overflow-x-auto">
-          <table class="w-full text-left border rounded-md bg-card/60">
-            <thead class="bg-muted/40">
-              <tr>${ths}</tr>
-            </thead>
-            <tbody>${trs}</tbody>
-          </table>
-        </div>
-      `
-    })
-  }
-
-  // Blockquotes styling
-  html = html.replace(/^>\s?(.*$)/gim, '<blockquote class="my-3 pl-3 border-l-2 border-muted text-muted-foreground">$1</blockquote>')
-
-  // Links styling
-  html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">$1<\/a>')
-  
-  return html
-}
 
 interface ChatInterfaceProps {
   sessionId?: string | null
@@ -173,6 +111,7 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
           sender: msg.role?.toUpperCase() === "USER" ? "user" : "ai",
           timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
           type: "text",
+          sources: msg.sources || [],
         }))
         // Only show loaded messages, no initial welcome message
         setMessages(loadedMessages.length > 0 ? loadedMessages : initialMessages)
@@ -204,6 +143,8 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
     try {
       // Use streaming API for better UX
       let fullMessage = ""
+      let streamSources: RetrievalSource[] = []
+      let streamMeta: RetrievalMeta | undefined
       
       const newSessionId = await advisorApi.sendMessageStream(
         {
@@ -233,6 +174,8 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
                 sender: 'ai',
                 timestamp: new Date(),
                 type: 'text',
+                sources: streamSources,
+                retrievalMeta: streamMeta,
               }
               return [...prev, aiMessage]
             })
@@ -244,6 +187,10 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
           toast.error("Failed to get AI response. Please try again.")
           setIsLoading(false)
           setStreamingMessage("")
+        },
+        ({ sources, retrievalMeta }) => {
+          streamSources = sources
+          streamMeta = retrievalMeta
         }
       )
 
@@ -277,6 +224,8 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
 
     try {
       let fullMessage = ""
+      let streamSources: RetrievalSource[] = []
+      let streamMeta: RetrievalMeta | undefined
       
       const newSessionId = await advisorApi.sendMessageStream(
         {
@@ -304,6 +253,8 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
                 sender: 'ai',
                 timestamp: new Date(),
                 type: 'text',
+                sources: streamSources,
+                retrievalMeta: streamMeta,
               }
               return [...prev, aiMessage]
             })
@@ -314,6 +265,10 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
           toast.error("Failed to get AI response.")
           setIsLoading(false)
           setStreamingMessage("")
+        },
+        ({ sources, retrievalMeta }) => {
+          streamSources = sources
+          streamMeta = retrievalMeta
         }
       )
 
@@ -396,36 +351,65 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
     }
   }
 
+  const formatSourceDate = (source: RetrievalSource): string | null => {
+    if (!source.publishedAt) return null
+    const date = new Date(source.publishedAt)
+    if (Number.isNaN(date.getTime())) return null
+    return date.toLocaleDateString()
+  }
+
   return (
     <div className="flex flex-1 flex-col h-full">
       {/* Chat Messages */}
-      <ScrollArea className="flex-1 p-6" ref={scrollAreaRef}>
-        <div className="space-y-6 max-w-4xl mx-auto">
+      <ScrollArea className="flex-1 px-4 py-6 md:px-6" ref={scrollAreaRef}>
+        <div className="space-y-7 max-w-4xl mx-auto">
           <AnimatePresence initial={false}>
             {messages.map((message, index) => (
               <div
                 key={message.id}
-                className={`flex gap-3 mb-3 ${message.sender === "user" ? "justify-end" : ""}`}
+                className={`flex gap-3 mb-4 ${message.sender === "user" ? "justify-end" : ""}`}
               >
                 {message.sender === "ai" && (
-                  <Avatar className="h-10 w-10 bg-gradient-to-br shadow-md from-gray-300/20 to-primary/5">
+                  <Avatar className={`translate-y-2 h-9 w-9 border border-border/70 hover:animate-spin ${streamingMessage && 'animate-spin'}`}>
                     <AvatarFallback className="bg-transparent">
-                      <Aperture className="h-5 w-5 text-primary" />
+                      <Aperture className="h-5 w-5 text-muted-foreground/80" />
                     </AvatarFallback>
                   </Avatar>
                 )}
 
-                <div className={`flex flex-col gap-2 max-w-[85%] ${message.sender === "user" ? "items-end" : ""}}`}>
+                <div className={`flex flex-col max-w-[88%] md:max-w-[84%] group ${message.sender === "user" ? "items-end" : ""}}`}>
                   <div>
                     <div className={`${
                       message.sender === "user" 
-                        ? "rounded-2xl bg-primary/90 text-primary-foreground shadow-sm px-4 py-0.5" 
-                        : "rounded-xl bg-card/60 shadow-sm hover:shadow-md transition-shadow px-4 py-3 border"
+                        ? "rounded-xl border border-border/70 bg-primary/90 text-primary-foreground px-4  shadow-sm" 
+                        : ""
                     }`}>
-                        <div 
-                          className="prose prose-sm md:prose-base leading-[1.7] dark:prose-invert max-w-none"
-                          dangerouslySetInnerHTML={{ __html: parseMarkdown(message.content) }}
-                        />
+                        {/* @ts-ignore */}
+                        <div className="advisor-typography prose dark:prose-invert max-w-none prose-p:my-3 prose-headings:font-semibold prose-headings:my-4 prose-a:text-primary hover:prose-a:underline prose-blockquote:border-l-2 prose-blockquote:border-muted prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-muted-foreground prose-li:my-1.5 prose-ul:my-3 prose-ol:my-3 prose-table:w-full prose-table:border prose-table:rounded-md prose-th:bg-muted/40 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-td:px-3 prose-td:py-2 prose-tr:border-b last:prose-tr:border-0 prose-tr:even:bg-muted/20">
+                          <Markdown
+                            remarkPlugins={[remarkGfm as any]}
+                            components={{
+                              ...({} as any),
+                              h1: ({node: _node, ...props}: any) => <h1 className="text-[1.9rem] leading-tight font-semibold mt-5 mb-3" {...props} />,
+                              h2: ({node: _node, ...props}: any) => <h2 className="text-[1.4rem] leading-tight font-semibold mt-4 mb-2" {...props} />,
+                              h3: ({node: _node, ...props}: any) => <h3 className="text-[1.2rem] leading-tight font-semibold mt-3 mb-2" {...props} />,
+                              h4: ({node: _node, ...props}: any) => <h4 className="text-base leading-tight font-semibold mt-2 mb-1" {...props} />,
+                              p: ({node: _node, ...props}: any) => <p className="my-3 text-[15px] md:text-[16px] leading-[1.7]" {...props} />,
+                              ul: ({node: _node, ...props}: any) => <ul className="list-disc ml-6 my-2" {...props} />,
+                              ol: ({node: _node, ...props}: any) => <ol className="list-decimal ml-6 my-2" {...props} />,
+                              li: ({node: _node, ...props}: any) => <li className="my-1.5 text-[15px] leading-[1.66]" {...props} />,
+                              blockquote: ({node: _node, ...props}: any) => <blockquote className="my-3 pl-3 border-l-2 border-muted text-muted-foreground italic" {...props} />,
+                              a: ({node: _node, ...props}: any) => <a className="text-primary hover:underline font-medium" target="_blank" rel="noopener noreferrer" {...props} />,
+                              table: ({node: _node, ...props}: any) => <div className="my-3 overflow-x-auto"><table className="w-full text-left border rounded-md bg-card/60 overflow-hidden" {...props} /></div>,
+                              thead: ({node: _node, ...props}: any) => <thead className="bg-muted/40" {...props} />,
+                              th: ({node: _node, ...props}: any) => <th className="px-3 py-2 text-xs font-semibold text-muted-foreground border-b" {...props} />,
+                              tr: ({node: _node, ...props}: any) => <tr className="hover:bg-muted/40 transition-colors border-b last:border-b-0 even:bg-muted/20" {...props} />,
+                              td: ({node: _node, ...props}: any) => <td className="px-3 py-2 text-xs" {...props} />
+                            }}
+                          >
+                            {message.content}
+                          </Markdown>
+                        </div>
                       {/* Enhanced AI Response Types */}
                       {message.sender === "ai" && message.type === "analysis" && message.data && (
                           <motion.div 
@@ -476,17 +460,54 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
                             </div>
                           </motion.div>
                         )}
+
+                        {message.sender === "ai" && message.sources && message.sources.length > 0 && (
+                          <div className="mt-4 rounded-md border border-border/80 bg-muted/20 p-3">
+                            <div className="mb-2 flex items-center justify-between">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Evidence</span>
+                              {message.retrievalMeta && (
+                                <span className="text-[11px] text-muted-foreground">
+                                  {message.retrievalMeta.matchCount} matches
+                                  {message.retrievalMeta.expanded ? " · portfolio-expanded" : ""}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {message.sources.map((source) => (
+                                <div key={source.id} className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/90 px-2.5 py-1 text-[11px]">
+                                  <Badge variant="outline" className="h-5 px-1.5 text-[11px] uppercase">{source.sourceType}</Badge>
+                                  <span className="font-medium">{source.ticker || "GLOBAL"}</span>
+                                  {source.source ? (
+                                    <a
+                                      href={source.source}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-primary underline-offset-2 hover:underline"
+                                    >
+                                      source
+                                    </a>
+                                  ) : (
+                                    <span className="text-muted-foreground">{source.documentType}</span>
+                                  )}
+                                  {/* <span className="text-[12px] text-muted-foreground">{(source.similarity ?? 0).toFixed(2)}</span> */}
+                                  {formatSourceDate(source) && (
+                                    <span className="text-[12px] text-muted-foreground">{formatSourceDate(source)}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                     </div>
                   </div>
 
                   {/* Message Actions */}
                   {message.sender === "ai" && (
-                    <div className="flex items-center gap-1.5 px-1">
-
+                    <div className="mt-1 flex items-center gap-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button 
                         variant="ghost" 
                         size="sm" 
-                        className="h-7 w-7 p-0 hover:bg-primary/10 transition-colors"
+                        className="h-7 w-7 p-0 hover:bg-primary/10 transition-colors cursor-pointer"
                         onClick={(e) => handleCopy(message.content, message.id, e)}
                       >
                         {copiedId === message.id ? (
@@ -495,7 +516,7 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
                           <Copy className="h-3.5 w-3.5" />
                         )}
                       </Button>
-                      <Button 
+                      {/* <Button 
                         variant="ghost" 
                         size="sm" 
                         className="h-7 w-7 p-0 hover:bg-green-500/10 hover:text-green-600 transition-colors"
@@ -510,7 +531,7 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
                         onClick={() => handleFeedback(message.id, 'down')}
                       >
                         <ThumbsDown className="h-3.5 w-3.5" />
-                      </Button>
+                      </Button> */}
                       <span className="text-xs text-muted-foreground ml-2 font-medium">
                         {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
@@ -519,7 +540,7 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
                 </div>
 
                 {message.sender === "user" && (
-                  <Avatar className="h-10 w-10 shadow-md bg-gradient-to-br from-muted to-muted/50">
+                  <Avatar className="h-9 w-9 border border-border/70">
                     <AvatarFallback className="bg-transparent">
                       <User className="h-5 w-5" />
                     </AvatarFallback>
@@ -532,46 +553,61 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
           {/* Streaming Message or Loading Indicator */}
           {isLoading && (
             <div className="flex gap-3">
-              <Avatar className="h-10 w-10 border-2 border-primary/30 shadow-md bg-gradient-to-br from-primary/20 to-primary/5">
-                <AvatarFallback className="bg-transparent">
-                  <Aperture className="h-5 w-5 text-primary" />
-                </AvatarFallback>
-              </Avatar>
+                  <Avatar className={`translate-y-2 h-9 w-9 border border-border/70 hover:animate-spin ${isLoading && 'animate-spin'}`}>
+                    <AvatarFallback className="bg-transparent">
+                      <Aperture className="h-5 w-5 text-muted-foreground/80" />
+                    </AvatarFallback>
+                  </Avatar>
               
               <div className="flex flex-col gap-2 max-w-[85%]">
-                <div className="rounded-lg bg-gradient-to-br from-card to-card/50 shadow-sm px-4 py-3">
+                <div className="rounded-xl">
                     {streamingMessage ? (
-                      <div className="prose prose-sm md:prose-base leading-[1.7] dark:prose-invert max-w-none">
-                        <div dangerouslySetInnerHTML={{ __html: parseMarkdown(streamingMessage) }} />
-                        <span className="inline-block w-0.5 h-4 bg-primary ml-1 animate-pulse" />
+                      <div className="advisor-typography prose dark:prose-invert max-w-none">
+                        {/* @ts-ignore */}
+                        <Markdown
+                          remarkPlugins={[remarkGfm as any]}
+                          components={{
+                            ...({} as any),
+                            h1: ({node: _node, ...props}: any) => <h1 className="text-[1.9rem] leading-tight font-semibold mt-5 mb-3" {...props} />,
+                            h2: ({node: _node, ...props}: any) => <h2 className="text-[1.4rem] leading-tight font-semibold mt-4 mb-2" {...props} />,
+                            h3: ({node: _node, ...props}: any) => <h3 className="text-[1.2rem] leading-tight font-semibold mt-3 mb-2" {...props} />,
+                            h4: ({node: _node, ...props}: any) => <h4 className="text-base leading-tight font-semibold mt-2 mb-1" {...props} />,
+                            p: ({node: _node, ...props}: any) => <p className="my-3 text-[15px] md:text-[16px] leading-[1.7]" {...props} />,
+                            ul: ({node: _node, ...props}: any) => <ul className="list-disc ml-6 my-2" {...props} />,
+                            ol: ({node: _node, ...props}: any) => <ol className="list-decimal ml-6 my-2" {...props} />,
+                            li: ({node: _node, ...props}: any) => <li className="my-1.5 text-[15px] leading-[1.66]" {...props} />,
+                            blockquote: ({node: _node, ...props}: any) => <blockquote className="my-3 pl-3 border-l-2 border-muted text-muted-foreground italic" {...props} />,
+                            a: ({node: _node, ...props}: any) => <a className="text-primary hover:underline font-medium" target="_blank" rel="noopener noreferrer" {...props} />,
+                            table: ({node: _node, ...props}: any) => <div className="my-3 overflow-x-auto"><table className="w-full text-left border rounded-md bg-card/60 overflow-hidden" {...props} /></div>,
+                            thead: ({node: _node, ...props}: any) => <thead className="bg-muted/40" {...props} />,
+                            th: ({node: _node, ...props}: any) => <th className="px-3 py-2 text-xs font-semibold text-muted-foreground border-b" {...props} />,
+                            tr: ({node: _node, ...props}: any) => <tr className="hover:bg-muted/40 transition-colors border-b last:border-b-0 even:bg-muted/20" {...props} />,
+                            td: ({node: _node, ...props}: any) => <td className="px-3 py-2 text-xs" {...props} />
+                          }}
+                        >
+                          {streamingMessage}
+                        </Markdown>
+                        <span className="inline-block w-0.5 h-4 bg-muted-foreground/60 ml-1 animate-pulse" />
                       </div>
                     ) : (
-                        <div className="flex items-center gap-3">
-                          <div className="flex gap-1.5">
+                        <div className="flex items-end gap-2">
+                          <div className="flex gap-1">
                             <motion.div 
                               className="w-1 h-1 bg-primary rounded-full"
-                              animate={{ y: [0, -8, 0] }}
+                              animate={{ y: [0, -5, 0] }}
                               transition={{ duration: 0.6, repeat: Infinity, ease: "easeInOut" }}
                             />
                             <motion.div
                               className="w-1 h-1 bg-primary rounded-full"
-                              animate={{ y: [0, -8, 0] }}
-                              transition={{ duration: 0.6, repeat: Infinity, ease: "easeInOut", delay: 0.1 }}
+                              animate={{ y: [0, -5, 0] }}
+                              transition={{ duration: 0.6, repeat: Infinity, ease: "easeInOut", delay: 0.08 }}
                             />
                             <motion.div
                               className="w-1 h-1 bg-primary rounded-full"
-                              animate={{ y: [0, -8, 0] }}
-                              transition={{ duration: 0.6, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
+                              animate={{ y: [0, -5, 0] }}
+                              transition={{ duration: 0.6, repeat: Infinity, ease: "easeInOut", delay: 0.12 }}
                             />
                           </div>
-                          <span className="text-xs text-muted-foreground">
-                            <motion.span
-                              animate={{ opacity: [1, 0.5, 1] }}
-                              transition={{ duration: 1.5, repeat: Infinity }}
-                            >
-                              Thinking
-                            </motion.span>
-                          </span>
                         </div>
                       )}
                 </div>
@@ -589,7 +625,7 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="p-6 border-t bg-gradient-to-b from-muted/30 to-transparent"
+          className="p-6 border-t bg-muted/10"
         >
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center gap-2 mb-4">
@@ -608,7 +644,7 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
                   <Button
                     variant="outline"
                     size="sm"
-                    className="justify-start text-left h-auto p-4 text-xs bg-card/50 hover:bg-card hover:shadow-md transition-all duration-200 w-full"
+                    className="justify-start text-left h-auto p-4 text-sm bg-card/70 hover:bg-card transition-all duration-200 w-full"
                     onClick={() => handleSuggestedQuestion(question)}
                     disabled={isLoading}
                   >
@@ -626,7 +662,7 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="sticky bottom-0 z-10 p-6 pb-2 border-t bg-background"
+        className="sticky bottom-0 z-10 p-6 pb-3 border-t bg-background/95 backdrop-blur-sm"
       >
         <div className="max-w-4xl mx-auto">
           <div className="flex gap-3">
@@ -637,14 +673,14 @@ export function ChatInterface({ sessionId, onSessionCreated }: ChatInterfaceProp
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Ask me anything about your finances, investments, or market trends..."
-                className="pr-14 h-14 rounded-xl text-[15px] shadow-lg border-2 focus-visible:ring-2 focus-visible:ring-primary/20 transition-all bg-card"
+                className="pr-14 h-14 rounded-xl text-[15px] border border-border/70 focus-visible:ring-2 focus-visible:ring-primary/15 transition-all bg-card/90"
                 disabled={isLoading}
               />
               <Button
                 onClick={handleSend}
                 disabled={!input.trim() || isLoading}
                 size="sm"
-                className="absolute right-2 top-2 h-10 w-10 p-0 shadow-md transition-transform hover:scale-105 active:scale-95"
+                className="absolute right-2 top-2 h-10 w-10 p-0 transition-transform hover:scale-105 active:scale-95"
               >
                 <Send className="h-4 w-4" />
               </Button>

@@ -92,6 +92,10 @@ async function makeRequest(params: Record<string, string>, cacheKey?: string): P
   }
 }
 
+function isAlphaVantageErrorPayload(data: any): boolean {
+  return Boolean(data?.["Error Message"] || data?.Note || data?.Information);
+}
+
 export interface Quote {
   c: number; // current price
   d: number; // change
@@ -131,6 +135,11 @@ export const alphaVantageService = {
         symbol: symbol,
       }, cacheKey);
 
+      if (isAlphaVantageErrorPayload(data)) {
+        console.warn(`Alpha Vantage quote unavailable for ${symbol}:`, data?.["Error Message"] || data?.Note || data?.Information);
+        return null;
+      }
+
       if (!data["Global Quote"] || Object.keys(data["Global Quote"]).length === 0) {
         console.warn(`No quote data for ${symbol}`);
         return null;
@@ -148,6 +157,11 @@ export const alphaVantageService = {
         dp: parseFloat(quote["10. change percent"].replace("%", "")),
         t: Math.floor(Date.now() / 1000),
       };
+
+      if ([formattedQuote.c, formattedQuote.o, formattedQuote.h, formattedQuote.l, formattedQuote.pc].some((v) => Number.isNaN(v))) {
+        console.warn(`Invalid numeric quote payload for ${symbol}`);
+        return null;
+      }
 
       // Cache the result
       await redis.setex(cacheKey, CACHE_TTL.QUOTE, formattedQuote).catch(() => {});
@@ -541,10 +555,20 @@ export const alphaVantageService = {
         function: "TOP_GAINERS_LOSERS",
       }, cacheKey);
 
-      if (data) {
+      const hasValidPayload = Boolean(
+        data &&
+        !isAlphaVantageErrorPayload(data) &&
+        (Array.isArray(data.top_gainers) || Array.isArray(data.top_losers) || Array.isArray(data.most_actively_traded))
+      );
+
+      if (hasValidPayload) {
         // Cache for 5 minutes
         await redis.setex(cacheKey, 300, data).catch(() => {});
         return data;
+      }
+
+      if (isAlphaVantageErrorPayload(data)) {
+        console.warn("Alpha Vantage top movers unavailable:", data?.["Error Message"] || data?.Note || data?.Information);
       }
 
       return { top_gainers: [], top_losers: [], most_actively_traded: [] };
