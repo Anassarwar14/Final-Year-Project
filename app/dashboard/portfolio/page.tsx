@@ -99,7 +99,7 @@ export default function PortfolioPage() {
               ${cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {((cashBalance / totalValue) * 100).toFixed(1)}% of portfolio
+              {(totalValue > 0 ? (cashBalance / totalValue) * 100 : 0).toFixed(1)}% of portfolio
             </p>
           </CardContent>
         </Card>
