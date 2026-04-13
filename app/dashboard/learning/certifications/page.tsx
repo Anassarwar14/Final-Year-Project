@@ -1,6 +1,5 @@
 "use client"
 
-import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -104,6 +103,8 @@ const stats = [
 ]
 
 export default function CertificationsPage() {
+  const getProgress = (progress?: number) => progress ?? 0
+
   const getLevelColor = (level: string) => {
     switch (level) {
       case "Beginner":
@@ -230,13 +231,13 @@ export default function CertificationsPage() {
                             <span>{cert.questions} questions</span>
                             <span>Pass: {cert.passingScore}%</span>
                           </div>
-                          {cert.progress > 0 && (
+                          {getProgress(cert.progress) > 0 && (
                             <div className="mb-3">
                               <div className="flex justify-between text-xs mb-1">
                                 <span>Preparation Progress</span>
-                                <span>{cert.progress}%</span>
+                                <span>{getProgress(cert.progress)}%</span>
                               </div>
-                              <Progress value={cert.progress} className="h-2" />
+                              <Progress value={getProgress(cert.progress)} className="h-2" />
                             </div>
                           )}
                           <div className="space-y-2">
@@ -263,14 +264,14 @@ export default function CertificationsPage() {
                           </div>
                           <div className="flex items-center justify-between mt-4">
                             <span className="text-sm text-muted-foreground">
-                              {cert.progress > 0 ? "Continue preparation" : "Start preparation"}
+                              {getProgress(cert.progress) > 0 ? "Continue preparation" : "Start preparation"}
                             </span>
                             <div className="flex gap-2">
                               <Button variant="outline" size="sm">
                                 <BookOpen className="h-4 w-4 mr-2" />
                                 Study Guide
                               </Button>
-                              <Button size="sm" disabled={cert.progress < 80}>
+                              <Button size="sm" disabled={getProgress(cert.progress) < 80}>
                                 <Award className="h-4 w-4 mr-2" />
                                 Take Exam
                               </Button>

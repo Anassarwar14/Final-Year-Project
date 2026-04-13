@@ -333,7 +333,7 @@ export default function TradingHistory() {
                       />
                       <Bar
                         dataKey="pnl"
-                        fill={(entry: any) => (entry.pnl >= 0 ? "#10b981" : "#ef4444")}
+                        fill="hsl(var(--primary))"
                         radius={[4, 4, 0, 0]}
                       />
                     </BarChart>

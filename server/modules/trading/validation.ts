@@ -6,9 +6,7 @@ export const initializeProfileSchema = z.object({});
 // Execute trade
 export const executeTradeSchema = z.object({
   assetId: z.string().min(1, "Asset ID is required"),
-  type: z.enum(["BUY", "SELL"], {
-    required_error: "Transaction type is required",
-  }),
+  type: z.enum(["BUY", "SELL"]),
   quantity: z
     .number()
     .positive("Quantity must be positive")
