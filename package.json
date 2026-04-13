@@ -5,6 +5,7 @@
 	"scripts": {
 		"dev": "next dev",
 		"build": "next build",
+		"render-build": "npm install --include=optional && npm run build",
 		"start": "next start",
 		"lint": "next lint",
 		"prisma:generate": "prisma generate --schema server/prisma/schema.prisma",
