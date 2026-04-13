@@ -16,7 +16,11 @@ portfolioRoutes.use("/*", privateRoutesMiddleware);
 // All portfolio routes require authentication
 portfolioRoutes.get("/overview", portfolioController.getOverview);
 portfolioRoutes.get("/performance", portfolioController.getPerformance);
+portfolioRoutes.get("/analytics", portfolioController.getAnalytics);
 portfolioRoutes.get("/insights", portfolioController.getInsights);
 portfolioRoutes.get("/news", portfolioController.getNews);
+portfolioRoutes.post("/holdings", portfolioController.addHolding);
+portfolioRoutes.patch("/holdings/:id", portfolioController.updateHolding);
+portfolioRoutes.delete("/holdings/:id", portfolioController.removeHolding);
 
 export default portfolioRoutes;

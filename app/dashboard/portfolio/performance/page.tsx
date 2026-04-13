@@ -1,16 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BarChart3, Calendar } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { BarChart3, Loader2 } from "lucide-react";
 import { ResponsiveContainer, XAxis, YAxis, Tooltip, Area, AreaChart, Bar, BarChart } from "recharts";
-
-const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((res) => res.json());
 
 type Snapshot = {
   createdAt: string;
@@ -26,15 +23,24 @@ type PerformanceResponse = {
   period: number;
 };
 
+const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((res) => res.json());
+
+const PERIODS = [
+  { label: "30D", value: 30 },
+  { label: "90D", value: 90 },
+  { label: "1Y", value: 365 },
+];
+
 export default function PerformancePage() {
-  const { data } = useSWR<PerformanceResponse>("/api/portfolio/performance?days=365", fetcher);
+  const [days, setDays] = useState(365);
+  const { data, isLoading } = useSWR<PerformanceResponse>(`/api/portfolio/performance?days=${days}`, fetcher);
 
   const snapshots = data?.snapshots || [];
-  const startValue = data?.startValue || 0;
-  const currentValue = data?.currentValue || 0;
+  const startValue = Number(data?.startValue || 0);
+  const currentValue = Number(data?.currentValue || 0);
 
   const totalReturn = startValue > 0 ? ((currentValue - startValue) / startValue) * 100 : 0;
-  const annualizedReturn = totalReturn;
+  const isPositive = totalReturn >= 0;
 
   const chartData = snapshots.map((snap) => ({
     date: new Date(snap.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
@@ -44,177 +50,132 @@ export default function PerformancePage() {
   const monthlyReturns = useMemo(() => {
     const map = new Map<string, number>();
     snapshots.forEach((snap) => {
-      const date = new Date(snap.createdAt);
-      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      const d = new Date(snap.createdAt);
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
       map.set(key, snap.totalValue);
     });
 
-    const ordered = Array.from(map.entries())
-      .map(([key, value]) => ({ key, value }))
-      .sort((a, b) => (a.key > b.key ? 1 : -1));
+    const sorted = Array.from(map.entries()).sort((a, b) => (a[0] > b[0] ? 1 : -1));
+    const rows: Array<{ month: string; return: number }> = [];
 
-    const returns: { month: string; return: number }[] = [];
-    for (let i = 1; i < ordered.length; i += 1) {
-      const prev = ordered[i - 1];
-      const curr = ordered[i];
-      const label = new Date(`${curr.key}-01`).toLocaleDateString("en-US", { month: "short" });
-      const pct = prev.value > 0 ? ((curr.value - prev.value) / prev.value) * 100 : 0;
-      returns.push({ month: label, return: Number(pct.toFixed(2)) });
+    for (let i = 1; i < sorted.length; i += 1) {
+      const prev = sorted[i - 1][1];
+      const curr = sorted[i][1];
+      const month = new Date(`${sorted[i][0]}-01`).toLocaleDateString("en-US", { month: "short" });
+      rows.push({ month, return: prev > 0 ? Number((((curr - prev) / prev) * 100).toFixed(2)) : 0 });
     }
-    return returns;
-  }, [snapshots]);
 
-  const hasMonthlyReturns = monthlyReturns.length > 0;
-  const monthlyReturnsData = hasMonthlyReturns
-    ? monthlyReturns
-    : [{ month: new Date().toLocaleDateString("en-US", { month: "short" }), return: 0 }];
+    return rows;
+  }, [snapshots]);
 
   const winRate = monthlyReturns.length
     ? (monthlyReturns.filter((m) => m.return > 0).length / monthlyReturns.length) * 100
     : 0;
 
-  const bestMonth = monthlyReturns.reduce(
-    (best, item) => (item.return > best.return ? item : best),
-    { month: "N/A", return: 0 }
-  );
+  if (isLoading) {
+    return (
+      <SidebarInset>
+        <div className="flex min-h-[500px] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </SidebarInset>
+    );
+  }
 
   return (
     <SidebarInset>
-      <header className="flex h-16 shrink-0 items-center gap-2 transition-all duration-200 ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+      <header className="flex h-16 shrink-0 items-center gap-2 border-b border-chart-1/30 bg-gradient-to-r from-chart-1/10 via-transparent to-chart-3/10 transition-all duration-200 ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
         <div className="flex items-center gap-2 px-4">
           <SidebarTrigger className="-ml-1" />
           <div className="h-4 w-px bg-sidebar-border" />
           <div className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-semibold">Performance Analysis</h1>
+            <h1 className="text-lg font-semibold">Performance Studio</h1>
           </div>
         </div>
-        <div className="ml-auto px-4 flex items-center gap-2">
-          <Select defaultValue="1Y">
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1M">1 Month</SelectItem>
-              <SelectItem value="3M">3 Months</SelectItem>
-              <SelectItem value="1Y">1 Year</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-            <Calendar className="h-4 w-4" />
-            Custom Range
-          </Button>
+        <div className="ml-auto flex items-center gap-2 px-4">
+          {PERIODS.map((p) => (
+            <Button
+              key={p.value}
+              size="sm"
+              variant={days === p.value ? "default" : "outline"}
+              className="h-8"
+              onClick={() => setDays(p.value)}
+            >
+              {p.label}
+            </Button>
+          ))}
         </div>
       </header>
 
-      <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+      <div className="flex flex-1 flex-col gap-4 bg-[radial-gradient(circle_at_90%_0%,_hsl(var(--chart-3)/0.15),_transparent_35%)] p-4 pt-0">
         <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Total Return</CardTitle>
-            </CardHeader>
+          <Card className="border-chart-1/30 bg-card/90">
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Return</CardTitle></CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${totalReturn >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {totalReturn >= 0 ? "+" : ""}{totalReturn.toFixed(2)}%
+              <div className={`text-2xl font-bold ${isPositive ? "text-green-600" : "text-red-600"}`}>
+                {isPositive ? "+" : ""}{totalReturn.toFixed(2)}%
               </div>
               <p className="text-xs text-muted-foreground">Period return</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Annualized Return</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${annualizedReturn >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {annualizedReturn >= 0 ? "+" : ""}{annualizedReturn.toFixed(2)}%
-              </div>
-              <p className="text-xs text-muted-foreground">Annualized</p>
-            </CardContent>
+          <Card className="border-chart-1/30 bg-card/90">
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Start Value</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold">${startValue.toLocaleString()}</div></CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Best Month</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">+{bestMonth.return.toFixed(2)}%</div>
-              <p className="text-xs text-muted-foreground">{bestMonth.month}</p>
-            </CardContent>
+          <Card className="border-chart-1/30 bg-card/90">
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Current Value</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold">${currentValue.toLocaleString()}</div></CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Win Rate</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{winRate.toFixed(0)}%</div>
-              <p className="text-xs text-muted-foreground">Positive months</p>
-            </CardContent>
+          <Card className="border-chart-1/30 bg-card/90">
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Win Rate</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold">{winRate.toFixed(0)}%</div><p className="text-xs text-muted-foreground">Positive months</p></CardContent>
           </Card>
         </div>
 
-        <Tabs defaultValue="performance" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="performance">Performance</TabsTrigger>
-            <TabsTrigger value="returns">Monthly Returns</TabsTrigger>
-          </TabsList>
+        <Card className="border-chart-1/30 bg-card/90">
+          <CardHeader>
+            <CardTitle>Portfolio Curve</CardTitle>
+            <CardDescription>Value movement across the selected range.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {chartData.length === 0 ? (
+              <div className="py-16 text-center text-sm text-muted-foreground">No snapshots yet for this period.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={360}>
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="perfGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <Tooltip formatter={(v) => [`$${Number(v).toLocaleString()}`, "Portfolio"]} />
+                  <Area type="monotone" dataKey="portfolio" stroke="hsl(var(--primary))" fill="url(#perfGradient)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
 
-          <TabsContent value="performance" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Portfolio Performance</CardTitle>
-                <CardDescription>Portfolio value over time</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={400}>
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="portfolioGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <Tooltip formatter={(value) => [`$${Number(value).toLocaleString()}`, "Portfolio"]} />
-                    <Area
-                      type="monotone"
-                      dataKey="portfolio"
-                      stroke="hsl(var(--primary))"
-                      fillOpacity={1}
-                      fill="url(#portfolioGradient)"
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                      activeDot={{ r: 6 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="returns" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Monthly Returns</CardTitle>
-                <CardDescription>Month-by-month performance breakdown</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {!hasMonthlyReturns && (
-                  <div className="text-xs text-muted-foreground mb-4">
-                    Monthly returns will appear after multiple snapshots are recorded.
-                  </div>
-                )}
-                <ResponsiveContainer width="100%" height={400}>
-                  <BarChart data={monthlyReturnsData}>
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip formatter={(value) => [`${value}%`, "Return"]} />
-                    <Bar dataKey="return" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+        <Card className="border-chart-1/30 bg-card/90">
+          <CardHeader>
+            <CardTitle>Monthly Return Bars</CardTitle>
+            <CardDescription>Simple month-over-month return profile.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={monthlyReturns.length ? monthlyReturns : [{ month: "N/A", return: 0 }]}>
+                <XAxis dataKey="month" />
+                <YAxis />
+                <Tooltip formatter={(value) => [`${value}%`, "Return"]} />
+                <Bar dataKey="return" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
       </div>
     </SidebarInset>
   );

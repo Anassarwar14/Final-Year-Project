@@ -62,7 +62,7 @@ const routes = app
 })();
 
 // Periodic RAG refresh from active portfolio symbols.
-const shouldAutoRefreshRag = process.env.RAG_AUTO_REFRESH_ENABLED !== "false";
+const shouldAutoRefreshRag = process.env.RAG_AUTO_REFRESH_ENABLED === "true";
 const ragRefreshIntervalMinutes = Number(process.env.RAG_AUTO_REFRESH_INTERVAL_MINUTES || 720);
 const ragRefreshMode = (process.env.RAG_REFRESH_MODE || "mvp-universe").toLowerCase();
 const ragRefreshMaxTickers = Math.max(1, Number(process.env.RAG_REFRESH_MAX_TICKERS || 10));

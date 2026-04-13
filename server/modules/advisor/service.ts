@@ -1,7 +1,6 @@
 import Groq from "groq-sdk";
 import { prisma } from "../../lib/db";
 import { portfolioService } from "../portfolio/service";
-import { tradingService } from "../trading/service";
 import { RAGService } from "../rag/service";
 import { marketDataService } from "../../services/marketDataService";
 
@@ -284,16 +283,19 @@ export class AdvisorService {
     const symbolsToPrime = new Set<string>();
 
     if (includePortfolio) {
-      const simProfile = await tradingService.getProfile(userId).catch(() => null);
-      if (simProfile && simProfile.holdings && simProfile.holdings.length > 0) {
-        const holdingSymbols = simProfile.holdings
-              .map((h: any) => h.symbol || h.asset?.symbol)
-              .filter(Boolean)
-              .join(" ");
-        simProfile.holdings
+      const portfolio = await portfolioService.getEnhancedPortfolio(userId).catch(() => null);
+      const holdings = portfolio?.holdings || [];
+      if (holdings.length > 0) {
+        const holdingSymbols = holdings
+          .map((h: any) => h.symbol || h.asset?.symbol)
+          .filter(Boolean)
+          .join(" ");
+
+        holdings
           .map((h: any) => h.symbol || h.asset?.symbol)
           .filter(Boolean)
           .forEach((symbol: string) => symbolsToPrime.add(String(symbol).toUpperCase()));
+
         if (holdingSymbols) {
           expandedQuery += ` ${holdingSymbols}`;
         }
@@ -421,24 +423,60 @@ CORE DIRECTIVES:
     // Add user's portfolio context if requested
     if (context.includePortfolio) {
       try {
-        // We prioritize the Trading Simulator profile since it's the most active
-        let portfolioData: any = null;
+        let realPortfolio: any = null;
+
         try {
-          const simProfile = await tradingService.getProfile(context.userId);
-          if (simProfile && simProfile.holdings && simProfile.holdings.length > 0) {
-            portfolioData = simProfile;
+          const portfolio = await portfolioService.getEnhancedPortfolio(context.userId);
+          if (portfolio) {
+            realPortfolio = {
+              ...portfolio.profile,
+              holdings: portfolio.holdings,
+              analytics: portfolio.analytics,
+              recentTransactions: portfolio.recentTransactions,
+            };
           }
         } catch (e) {}
 
-        if (!portfolioData) {
-          try {
-            const realPortfolio = await portfolioService.getEnhancedPortfolio(context.userId);
-            if (realPortfolio) {
-              portfolioData = realPortfolio.profile;
-              portfolioData.holdings = realPortfolio.holdings;
-              portfolioData.analytics = realPortfolio.analytics;
-            }
-          } catch(e) {}
+        const portfolioData = realPortfolio && realPortfolio.holdings?.length > 0 ? realPortfolio : null;
+
+        if (realPortfolio && realPortfolio.holdings?.length > 0) {
+          const totalValue = Number(realPortfolio.totalValue || 0);
+          const cash = Number(realPortfolio.cashBalance || 0);
+          const unrealizedPnL = Number(realPortfolio.analytics?.totalUnrealizedPnL || 0);
+          const unrealizedPct = Number(realPortfolio.analytics?.totalUnrealizedPnLPercent || 0);
+
+          systemPrompt += `\n\n## USER'S REAL PORTFOLIO (PRIMARY):
+**Total Portfolio Value:** $${totalValue.toFixed(2)}
+**Available Cash:** $${cash.toFixed(2)}
+**Unrealized P&L:** ${unrealizedPnL >= 0 ? '+' : ''}$${unrealizedPnL.toFixed(2)} (${unrealizedPct.toFixed(2)}%)
+
+### Real Holdings:`;
+
+          if (!realPortfolio.holdings || realPortfolio.holdings.length === 0) {
+            systemPrompt += `\n(No active real positions.)`;
+          } else {
+            realPortfolio.holdings.forEach((h: any) => {
+              const symbol = h.asset?.symbol || h.symbol;
+              const avgPrice = Number(h.averageBuyPrice || h.averagePrice || 0);
+              const currPrice = Number(h.currentPrice || 0);
+              const pnl = Number(h.unrealizedPnL || 0);
+              const pnlPct = Number(h.unrealizedPnLPercent || 0);
+              const qty = Number(h.quantity || 0);
+
+              systemPrompt += `\n- **${symbol}**: ${qty} shares | Avg: $${avgPrice.toFixed(2)} | Current: $${currPrice.toFixed(2)} | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%)`;
+            });
+          }
+
+          if (Array.isArray(realPortfolio.recentTransactions) && realPortfolio.recentTransactions.length > 0) {
+            systemPrompt += `\n\n### Recent Transactions (Newest First):`;
+            realPortfolio.recentTransactions.slice(0, 5).forEach((t: any) => {
+              const symbol = t.asset?.symbol || 'N/A';
+              const type = t.type || 'N/A';
+              const qty = Number(t.quantity || 0);
+              const px = Number(t.pricePerUnit || 0);
+              systemPrompt += `\n- ${type} ${qty} ${symbol} @ $${px.toFixed(2)}`;
+            });
+          }
         }
 
         const investorProfile = await prisma.investorProfile.findUnique({
@@ -464,10 +502,10 @@ CORE DIRECTIVES:
 
         if (portfolioData) {
           hasPortfolioData = true;
-          const totalValue = portfolioData.totalValue || portfolioData.totalValue || 0;
-          const cash = portfolioData.virtualBalance || portfolioData.cashBalance || 0;
+          const totalValue = Number(portfolioData.totalValue || 0);
+          const cash = Number(portfolioData.virtualBalance || portfolioData.cashBalance || 0);
           
-          systemPrompt += `\n\n## USER'S CURRENT PORTFOLIO:
+          systemPrompt += `\n\n## USER'S ACTIVE PORTFOLIO CONTEXT:
 **Total Portfolio Value:** $${totalValue.toFixed(2)}
 **Available Cash to Invest:** $${cash.toFixed(2)}
 
@@ -478,12 +516,13 @@ CORE DIRECTIVES:
           } else {
              portfolioData.holdings.forEach((h: any) => {
               const symbol = h.asset?.symbol || h.symbol;
-              const avgPrice = h.averageBuyPrice || h.averagePrice || 0;
-              const currPrice = h.currentPrice || 0;
-              const pnl = h.unrealizedPnL || 0;
-              const pnlPct = h.unrealizedPnLPercent || 0;
+              const avgPrice = Number(h.averageBuyPrice || h.averagePrice || 0);
+              const currPrice = Number(h.currentPrice || 0);
+              const pnl = Number(h.unrealizedPnL || 0);
+              const pnlPct = Number(h.unrealizedPnLPercent || 0);
+              const qty = Number(h.quantity || 0);
               
-              systemPrompt += `\n- **${symbol}**: ${h.quantity} shares. Average Buy: $${avgPrice.toFixed(2)} | Current: $${currPrice.toFixed(2)} | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%)`;
+              systemPrompt += `\n- **${symbol}**: ${qty} shares. Average Buy: $${avgPrice.toFixed(2)} | Current: $${currPrice.toFixed(2)} | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%)`;
              });
           }
           systemPrompt += `\n\n>>> CRITICAL: Base buy/sell analysis on these exact holdings. Tell the user what they should add, trim, or exit based on their stated goals and risk tolerance.`;

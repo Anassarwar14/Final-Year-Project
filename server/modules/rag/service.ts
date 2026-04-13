@@ -453,7 +453,7 @@ export class RAGService {
   }
 
   private static async cleanupStaleSecSources(ticker: string, keepSourceIds: string[]): Promise<number> {
-    const keepSet = new Set(keepSourceIds.filter(Boolean));
+    const keepSet = new Set<string | null>(keepSourceIds.filter((id): id is string => Boolean(id)));
 
     const existing = await prisma.$queryRaw<Array<{ source_id: string | null }>>`
       SELECT DISTINCT metadata->>'source_id' AS source_id
@@ -464,7 +464,10 @@ export class RAGService {
 
     const stale = existing
       .map((row) => row.source_id)
-      .filter((sourceId): sourceId is string => Boolean(sourceId) && !keepSet.has(sourceId));
+      .filter((sourceId): sourceId is string => {
+        if (!sourceId) return false;
+        return !keepSet.has(sourceId);
+      });
 
     if (!stale.length) return 0;
 
