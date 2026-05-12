@@ -258,7 +258,6 @@ import {
   Bot,
   GraduationCap,
   Newspaper,
-  Wallet,
   Home,
   LucideChartCandlestick,
 } from "lucide-react"
@@ -299,13 +298,13 @@ const navMain = [
   },
   {
     title: "Learning Hub",
-    url: "/learning",
+    url: "/dashboard/learning",
     icon: GraduationCap,
     items: [
-      { title: "Courses", url: "/learning/courses" },
-      { title: "Market Basics", url: "/learning/basics" },
-      { title: "Advanced Strategies", url: "/learning/advanced" },
-      { title: "Certifications", url: "/learning/certifications" },
+      { title: "Courses", url: "/dashboard/learning/courses" },
+      { title: "Market Basics", url: "/dashboard/learning/basics" },
+      { title: "Advanced Strategies", url: "/dashboard/learning/advanced" },
+      { title: "Certifications", url: "/dashboard/learning/certifications" },
     ],
   },
   {

@@ -32,22 +32,26 @@ export function NavMain({
     }[]
   }[]
 }) {
-  
-  const basePath = "/dashboard" 
+  const basePath = "/dashboard"
   const pathname = usePathname()
 
-  console.log('Current pathname:', pathname) // Debug log
+  /** Avoid `/dashboard` + `/dashboard/...` when nav data already uses absolute dashboard paths. */
+  function resolveNavHref(url: string): string {
+    if (url === "/") return basePath
+    if (url.startsWith("/dashboard")) return url
+    return url.startsWith("/") ? basePath + url : `${basePath}/${url}`
+  }
 
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Platform</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => {
-          const fullPath = item.url === '/' ? basePath : basePath + item.url
-          const isItemActive = pathname === fullPath || (item.items?.some(subItem => pathname === (subItem.url === item.url ? basePath + subItem.url : subItem.url.startsWith('/') ? basePath + subItem.url : basePath + '/' + subItem.url)))
-          
-          console.log(`Item: ${item.title}, fullPath: ${fullPath}, pathname: ${pathname}, isActive: ${!item.items && pathname === fullPath}`) // Debug log
-          
+          const fullPath = resolveNavHref(item.url)
+          const isItemActive =
+            pathname === fullPath ||
+            Boolean(item.items?.some((subItem) => pathname === resolveNavHref(subItem.url)))
+
           return (
             <Collapsible key={item.title} asChild defaultOpen={isItemActive} className="group/collapsible">
               <SidebarMenuItem>
@@ -71,8 +75,7 @@ export function NavMain({
                   <CollapsibleContent>
                     <SidebarMenuSub>
                       {item.items?.map((subItem) => {
-                        const subPath = subItem.url.startsWith('/dashboard') ? subItem.url : basePath + subItem.url
-                        console.log(`SubItem: ${subItem.title}, subPath: ${subPath}, pathname: ${pathname}, isActive: ${pathname === subPath}`) // Debug
+                        const subPath = resolveNavHref(subItem.url)
                         return (
                           <SidebarMenuSubItem key={subItem.title}>
                             <SidebarMenuSubButton asChild isActive={pathname === subPath}>

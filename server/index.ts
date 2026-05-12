@@ -4,6 +4,7 @@ import privateRoutes from "./modules/private";
 import tradingRoutes from "./modules/trading";
 import newsRoutes from "./modules/news";
 import portfolioRoutes from "./modules/portfolio";
+import learningHubRoutes from "./modules/learning-hub";
 import { alphaVantageService } from "./services/alphaVantageService";
 import { prisma } from "./lib/db";
 import { tradingService } from "./modules/trading/service";
@@ -15,7 +16,8 @@ const routes = app
   .route("/private", privateRoutes)
   .route("/trading", tradingRoutes)
   .route("/news", newsRoutes)
-  .route("/portfolio", portfolioRoutes);
+  .route("/portfolio", portfolioRoutes)
+  .route("/learning-hub", learningHubRoutes);
 
 // Auto-process pending orders on server startup if market is open
 (async () => {

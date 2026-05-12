@@ -9,11 +9,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
-
 
 // _______________________________ Enums _________________________________
 // Consolidating all Enums here for clarity
@@ -38,7 +37,7 @@ enum AssetType {
   CRYPTO
   ETF
   MUTUAL_FUND
-  COMMODITY 
+  COMMODITY
 }
 
 enum LearningStatus {
@@ -53,16 +52,27 @@ enum NewsSentiment {
   NEUTRAL
 }
 
+/// Learning Hub (Udemy-style video courses): Crypto, Trading, Finance
+enum HubCourseCategory {
+  CRYPTO
+  TRADING
+  FINANCE
+}
+
+enum CourseInteractionType {
+  FAVORITE
+  WATCH_LATER
+}
 
 // _______________________________Core User & Auth Models (Your existing models, enhanced)________________________________
 model User {
-  id               String    @id @default(cuid())
+  id               String       @id @default(cuid())
   name             String
-  email            String    @unique
-  emailVerified    Boolean   @default(false)
+  email            String       @unique
+  emailVerified    Boolean      @default(false)
   image            String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
   twoFactorEnabled Boolean?
   role             String?
   banned           Boolean?
@@ -75,14 +85,16 @@ model User {
   twofactors       TwoFactor[]
 
   // --- New Relations for FYP Modules ---
-  portfolios         Portfolio[]
-  simulatorProfile   SimulatorProfile? // One-to-one
-  learningProgress   LearningProgress[]
-  aiChatSessions     AiChatSession[]
+  portfolios       Portfolio[]
+  simulatorProfile SimulatorProfile? // One-to-one
+  learningProgress LearningProgress[]
+  aiChatSessions   AiChatSession[]
+
+  hubChapterProgress    UserProgress[]
+  hubCourseInteractions UserCourseInteraction[]
 
   @@map("user") // <--- Add this line
 }
-
 
 model Session {
   id                   String   @id
@@ -100,7 +112,6 @@ model Session {
   @@unique([token])
   @@map("session")
 }
-
 
 model Account {
   id                    String    @id @default(cuid())
@@ -120,7 +131,6 @@ model Account {
 
   @@map("account")
 }
-
 
 model Verification {
   id         String    @id
@@ -183,9 +193,6 @@ model TwoFactor {
   @@map("twoFactor")
 }
 
-
-
-
 // --- START: FYP MODULES ---
 
 // --- 1. Master Asset Table ---
@@ -193,10 +200,10 @@ model TwoFactor {
 // This table can be populated by Finnhub API.
 
 model Asset {
-  id     String @id // Use the asset's unique symbol as ID (e.g., "AAPL", "BINANCE:BTCUSDT")
-  name   String
-  type   AssetType
-  symbol String @unique // e.g., "AAPL"
+  id       String    @id // Use the asset's unique symbol as ID (e.g., "AAPL", "BINANCE:BTCUSDT")
+  name     String
+  type     AssetType
+  symbol   String    @unique // e.g., "AAPL"
   exchange String? // e.g., "NASDAQ"
   currency String? // e.g., "USD"
   logoUrl  String?
@@ -214,37 +221,37 @@ model Asset {
 // Models for storing conversation history with the RAG chatbot.
 
 model AiChatSession {
-  id        String   @id @default(cuid())
+  id        String          @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String // e.g., "Discussion about EV stocks"
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
   messages  AiChatMessage[]
 }
 
 model AiChatMessage {
-  id        String       @id @default(cuid())
+  id        String        @id @default(cuid())
   sessionId String
   session   AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   role      AiChatRole // "USER" or "MODEL"
   content   String // The text content of the message
   sources   String[] // Array of strings for source URLs/documents, as per your RAG proposal
-  createdAt DateTime     @default(now())
+  createdAt DateTime      @default(now())
 }
 
 // --- 3. Portfolio Management ---
 // Models for real-money portfolio tracking, holdings, and performance.
 
 model Portfolio {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String // e.g., "Retirement Fund", "Tech Plays"
   description String?
-  cashBalance Decimal   @default(0.0) // Tracks user's cash in this portfolio
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  cashBalance Decimal  @default(0.0) // Tracks user's cash in this portfolio
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   holdings             Holding[]
   transactions         Transaction[]
@@ -252,7 +259,7 @@ model Portfolio {
 }
 
 model Holding {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   portfolioId     String
   portfolio       Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
   assetId         String
@@ -266,9 +273,9 @@ model Holding {
 model Transaction {
   id           String          @id @default(cuid())
   portfolioId  String
-  portfolio    Portfolio        @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  portfolio    Portfolio       @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
   assetId      String
-  asset        Asset            @relation(fields: [assetId], references: [id])
+  asset        Asset           @relation(fields: [assetId], references: [id])
   type         TransactionType // BUY or SELL
   quantity     Decimal
   pricePerUnit Decimal // Price at the time of transaction
@@ -277,12 +284,12 @@ model Transaction {
 }
 
 model PortfolioSnapshot {
-  id          String    @id @default(cuid())
-  portfolioId String
-  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  date        DateTime // Timestamp of the snapshot
-  totalValue  Decimal // Total value of holdings + cash
-  cashValue   Decimal // Just the cash balance at that time
+  id            String    @id @default(cuid())
+  portfolioId   String
+  portfolio     Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  date          DateTime // Timestamp of the snapshot
+  totalValue    Decimal // Total value of holdings + cash
+  cashValue     Decimal // Just the cash balance at that time
   holdingsValue Decimal // Just the holdings value at that time
 
   @@unique([portfolioId, date])
@@ -292,20 +299,20 @@ model PortfolioSnapshot {
 // Models for educational content and tracking user progress.
 
 model LearningCategory {
-  id          String   @id @default(cuid())
-  name        String   @unique // e.g., "Stock Market Basics", "Crypto 101"
+  id          String            @id @default(cuid())
+  name        String            @unique // e.g., "Stock Market Basics", "Crypto 101"
   description String?
   articles    LearningArticle[]
 }
 
 model LearningArticle {
-  id         String   @id @default(cuid())
+  id         String           @id @default(cuid())
   title      String
   content    String // Can store Markdown or HTML
   author     String?
   imageUrl   String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
   categoryId String
   category   LearningCategory @relation(fields: [categoryId], references: [id])
 
@@ -313,28 +320,92 @@ model LearningArticle {
 }
 
 model LearningProgress {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  articleId String
-  article   LearningArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  status    LearningStatus  @default(NOT_STARTED)
-  startedAt DateTime?
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  articleId   String
+  article     LearningArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  status      LearningStatus  @default(NOT_STARTED)
+  startedAt   DateTime?
   completedAt DateTime?
 
   @@unique([userId, articleId]) // User can only have one progress entry per article
+}
+
+// --- Video courses (Learning Hub) — chapters are YouTube links + per-chapter quiz JSON
+model Course {
+  id          String            @id @default(cuid())
+  title       String
+  description String
+  category    HubCourseCategory
+  thumbnail   String?
+  published   Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  chapters     Chapter[]
+  interactions UserCourseInteraction[]
+
+  @@index([category])
+  @@map("learning_hub_course")
+}
+
+model Chapter {
+  id         String   @id @default(cuid())
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title      String
+  youtubeUrl String
+  order      Int      @default(0)
+  /// Stored shape: { "questions": [{ "id": string, "prompt": string, "options": string[], "correctIndex": number }] }
+  quizJson   Json     @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  progress UserProgress[]
+
+  @@unique([courseId, order])
+  @@map("learning_hub_chapter")
+}
+
+/// One row per user per chapter; `completedAt` is set only after the chapter quiz passes on the server.
+model UserProgress {
+  id          String    @id @default(cuid())
+  userId      String
+  chapterId   String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chapter     Chapter   @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  completedAt DateTime?
+
+  @@unique([userId, chapterId])
+  @@index([userId])
+  @@map("learning_hub_user_progress")
+}
+
+model UserCourseInteraction {
+  id        String                @id @default(cuid())
+  userId    String
+  courseId  String
+  type      CourseInteractionType
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course                @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdAt DateTime              @default(now())
+
+  @@unique([userId, courseId, type])
+  @@index([userId])
+  @@map("learning_hub_user_course_interaction")
 }
 
 // --- 5. Trading Simulator ---
 // Models for the virtual trading environment. Mirrors the portfolio structure.
 
 model SimulatorProfile {
-  id             String    @id @default(cuid())
-  userId         String    @unique // One profile per user
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  virtualBalance Decimal   @default(100000.0) // Starting virtual cash
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id             String   @id @default(cuid())
+  userId         String   @unique // One profile per user
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  virtualBalance Decimal  @default(100000.0) // Starting virtual cash
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   holdings             SimulatorHolding[]
   transactions         SimulatorTransaction[]
@@ -363,32 +434,32 @@ model SimulatorTransaction {
   type         TransactionType // BUY or SELL
   quantity     Decimal
   pricePerUnit Decimal
-  executedAt   DateTime?       // Null if pending execution
+  executedAt   DateTime? // Null if pending execution
   pending      Boolean          @default(false) // True if queued, waiting for market open
   createdAt    DateTime         @default(now())
 }
 
 model SimulatorSnapshot {
-  id          String           @id @default(cuid())
-  profileId   String
-  profile     SimulatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  date        DateTime
-  totalValue  Decimal // Total value of holdings + virtual cash
-  cashValue   Decimal // Just the virtual cash balance
+  id            String           @id @default(cuid())
+  profileId     String
+  profile       SimulatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  date          DateTime
+  totalValue    Decimal // Total value of holdings + virtual cash
+  cashValue     Decimal // Just the virtual cash balance
   holdingsValue Decimal // Just the holdings value
 
   @@unique([profileId, date])
 }
 
 model SimulatorWatchlist {
-  id                 String           @id @default(cuid())
-  profileId          String
-  profile            SimulatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  assetId            String
-  asset              Asset            @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  priceAlertTarget   Decimal?
-  priceAlertEnabled  Boolean          @default(false)
-  createdAt          DateTime         @default(now())
+  id                String           @id @default(cuid())
+  profileId         String
+  profile           SimulatorProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  assetId           String
+  asset             Asset            @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  priceAlertTarget  Decimal?
+  priceAlertEnabled Boolean          @default(false)
+  createdAt         DateTime         @default(now())
 
   @@unique([profileId, assetId])
 }
@@ -397,17 +468,17 @@ model SimulatorWatchlist {
 // Model for storing news articles, populated by your News API.
 
 model NewsArticle {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   sourceName  String? // e.g., "Reuters", "Bloomberg"
   author      String?
   title       String
   description String
-  url         String   @unique // The original URL
+  url         String        @unique // The original URL
   imageUrl    String?
   publishedAt DateTime
   content     String? // The full content, if available
   sentiment   NewsSentiment @default(NEUTRAL) // As per your proposal
-  createdAt   DateTime @default(now())
+  createdAt   DateTime      @default(now())
 
   // M-N relation to link articles to specific assets
   relatedAssets Asset[]

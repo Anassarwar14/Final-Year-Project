@@ -1,10 +1,13 @@
 import * as finnhub from "finnhub";
 import { redis, CACHE_KEYS, CACHE_TTL } from "../lib/redis";
 
-// Initialize Finnhub API client
-const api_key = finnhub.ApiClient.instance.authentications["api_key"];
-api_key.apiKey = process.env.FINNHUB_API_KEY!;
-const finnhubClient = new finnhub.DefaultApi();
+/**
+ * Finnhub JS SDK v2+ uses `new DefaultApi(apiKey)` only.
+ * Older snippets used `ApiClient.instance`, which is undefined in v2 — that broke every `/api/*` route on import.
+ */
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY?.trim() ?? "";
+const finnhubClient: InstanceType<typeof finnhub.DefaultApi> | null =
+  FINNHUB_API_KEY ? new finnhub.DefaultApi(FINNHUB_API_KEY) : null;
 
 // Types for Finnhub responses
 export interface Quote {
@@ -174,7 +177,12 @@ export const marketDataService = {
         console.warn("Rate limit reached, returning cached data");
         return null;
       }
-      
+
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping live quote fetch");
+        return null;
+      }
+
       // Fetch from Finnhub
       const quote = await new Promise<Quote>((resolve, reject) => {
         finnhubClient.quote(symbol, (error: any, data: any) => {
@@ -238,7 +246,12 @@ export const marketDataService = {
         console.warn("Rate limit reached for candles");
         return null;
       }
-      
+
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping candles fetch");
+        return null;
+      }
+
       // Fetch from Finnhub
       const candles = await new Promise<Candle>((resolve, reject) => {
         finnhubClient.stockCandles(
@@ -279,7 +292,12 @@ export const marketDataService = {
         console.warn("Rate limit reached for search");
         return [];
       }
-      
+
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping symbol search");
+        return [];
+      }
+
       // Fetch from Finnhub
       const results = await new Promise<{ result: SearchResult[] }>(
         (resolve, reject) => {
@@ -320,7 +338,12 @@ export const marketDataService = {
         console.warn("Rate limit reached for profile");
         return null;
       }
-      
+
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping company profile");
+        return null;
+      }
+
       // Fetch from Finnhub
       const profile = await new Promise<CompanyProfile>((resolve, reject) => {
         finnhubClient.companyProfile2({ symbol }, (error: any, data: any) => {
@@ -371,6 +394,11 @@ export const marketDataService = {
         return [];
       }
 
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping company news");
+        return [];
+      }
+
       // Fetch from Finnhub
       const news = await new Promise<NewsArticle[]>((resolve, reject) => {
         finnhubClient.companyNews(symbol, from, to, (error: any, data: any) => {
@@ -415,6 +443,11 @@ export const marketDataService = {
         return [];
       }
 
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping market news");
+        return [];
+      }
+
       // Fetch from Finnhub
       const news = await new Promise<NewsArticle[]>((resolve, reject) => {
         finnhubClient.marketNews(category, (error: any, data: any) => {
@@ -456,6 +489,11 @@ export const marketDataService = {
       // Check rate limit
       if (!(await checkRateLimit())) {
         console.warn("Rate limit reached for financials");
+        return null;
+      }
+
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping basic financials");
         return null;
       }
 
@@ -506,6 +544,11 @@ export const marketDataService = {
       // Check rate limit
       if (!(await checkRateLimit())) {
         console.warn("Rate limit reached for recommendations");
+        return [];
+      }
+
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping recommendation trends");
         return [];
       }
 
@@ -629,6 +672,11 @@ export const marketDataService = {
         return { earningsCalendar: [] };
       }
 
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping earnings calendar");
+        return { earningsCalendar: [] };
+      }
+
       // Fetch from Finnhub
       const calendar = await new Promise<{ earningsCalendar: EarningsCalendar[] }>(
         (resolve, reject) => {
@@ -680,6 +728,11 @@ export const marketDataService = {
         return [];
       }
 
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping peers");
+        return [];
+      }
+
       // Fetch from Finnhub
       const peers = await new Promise<string[]>((resolve, reject) => {
         finnhubClient.peers(symbol, (error: any, data: any) => {
@@ -725,6 +778,11 @@ export const marketDataService = {
       // Check rate limit
       if (!(await checkRateLimit())) {
         console.warn("Rate limit reached for financials as reported");
+        return null;
+      }
+
+      if (!finnhubClient) {
+        console.warn("FINNHUB_API_KEY is not set — skipping financials as reported");
         return null;
       }
 
