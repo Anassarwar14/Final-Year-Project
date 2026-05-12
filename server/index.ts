@@ -41,13 +41,17 @@ if (!isBuildPhase) {
         console.log("Market is OPEN - processing all pending orders...");
 
         // Find all users with pending orders
-        const pendingOrders: Prisma.SimulatorTransactionGetPayload<{ include: { profile: true } }>[] = await prisma.simulatorTransaction.findMany({
+        const pendingOrders = await prisma.simulatorTransaction.findMany({
           where: { pending: true },
           include: { profile: true },
           distinct: ["profileId"],
         });
 
-        const uniqueUserIds = [...new Set(pendingOrders.map((o) => o.profile.userId))];
+        const uniqueUserIds = [
+          ...new Set(
+            pendingOrders.map((o: { profile: { userId: string } }) => o.profile.userId)
+          ),
+        ] as string[];
         console.log(`Found pending orders for ${uniqueUserIds.length} user(s)`);
 
         for (const userId of uniqueUserIds) {
