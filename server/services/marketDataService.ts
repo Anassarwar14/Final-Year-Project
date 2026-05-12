@@ -138,8 +138,8 @@ async function checkRateLimit(): Promise<boolean> {
       await redis.expire(key, CACHE_TTL.RATE_LIMIT);
     }
     
-    // Allow 50 requests per minute (leaving buffer for 60 limit)
-    return count <= 50;
+    // Allow 55 requests per minute (Finnhub free tier: 60/min, leaving small buffer)
+    return count <= 55;
   } catch (error) {
     // Fallback to in-memory rate limiting if Redis fails
     const now = Date.now();
@@ -149,7 +149,7 @@ async function checkRateLimit(): Promise<boolean> {
     }
     
     rateLimitCount++;
-    return rateLimitCount <= 50;
+    return rateLimitCount <= 55;
   }
 }
 
@@ -172,15 +172,20 @@ export const marketDataService = {
       
       // Check rate limit
       if (!(await checkRateLimit())) {
-        console.warn("Rate limit reached, returning cached data");
+        console.warn(`Rate limit reached for quote: ${symbol}`);
         return null;
       }
       
       // Fetch from Finnhub
       const quote = await new Promise<Quote>((resolve, reject) => {
         finnhubClient.quote(symbol, (error: any, data: any) => {
-          if (error) reject(error);
-          else resolve(data as Quote);
+          if (error) {
+            console.error(`Finnhub error for ${symbol}:`, error?.message || error);
+            reject(error);
+          }
+          else {
+            resolve(data as Quote);
+          }
         });
       });
       
@@ -206,15 +211,23 @@ export const marketDataService = {
     
     // Fetch in parallel with rate limiting consideration
     const results = await Promise.allSettled(
-      symbols.map((symbol) => this.getRealtimeQuote(symbol))
+      symbols.map((symbol) => 
+        this.getRealtimeQuote(symbol).catch((err) => {
+          console.warn(`Failed to fetch quote for ${symbol}:`, err.message);
+          return null;
+        })
+      )
     );
     
     results.forEach((result, index) => {
       if (result.status === "fulfilled" && result.value) {
         quotes.set(symbols[index], result.value);
+      } else if (result.status === "rejected") {
+        console.warn(`Promise rejected for ${symbols[index]}:`, result.reason);
       }
     });
-    
+
+    console.log(`getBatchQuotes: Successfully retrieved ${quotes.size}/${symbols.length} quotes`);
     return quotes;
   },
 
