@@ -2,16 +2,29 @@ import { Hono } from "hono";
 import { advisorController } from "./controller";
 import { auth } from "../../lib/auth";
 
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
 // Middleware for private routes
 const privateRoutesMiddleware = async (c: any, next: any) => {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  // Skip auth during build phase
+  if (isBuildPhase) {
+    await next();
+    return;
+  }
+  
+  try {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
 
-  if (!session) {
+    if (!session) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    c.set("user", session.user);
+    c.set("session", session.session);
+  } catch (error) {
+    console.error("Auth middleware error:", error);
     return c.json({ error: "Unauthorized" }, 401);
   }
-
-  c.set("user", session.user);
-  c.set("session", session.session);
 
   await next();
 };

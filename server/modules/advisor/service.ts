@@ -130,7 +130,7 @@ export class AdvisorService {
 
       const parsed = JSON.parse(jsonMatch[0]) as Partial<IntentClassification>;
       const entities = Array.from(
-        new Set((parsed.entities || fallback.entities).map((e) => String(e).toUpperCase()).filter(Boolean))
+        new Set((parsed.entities || fallback.entities).map((e: string) => String(e).toUpperCase()).filter(Boolean))
       );
 
       return {
@@ -138,7 +138,7 @@ export class AdvisorService {
         entities,
         time_range: (parsed.time_range as IntentClassification["time_range"]) || fallback.time_range,
         data_needed: Array.isArray(parsed.data_needed) && parsed.data_needed.length
-          ? parsed.data_needed.map((d) => String(d).toLowerCase())
+          ? parsed.data_needed.map((d: string) => String(d).toLowerCase())
           : fallback.data_needed,
         is_real_time: typeof parsed.is_real_time === "boolean" ? parsed.is_real_time : fallback.is_real_time,
       };
@@ -177,7 +177,7 @@ export class AdvisorService {
     const sourceTypes = new Set<string>();
     for (const need of classification.data_needed || []) {
       const mapped = map.get(need);
-      if (mapped) mapped.forEach((item) => sourceTypes.add(item));
+      if (mapped) mapped.forEach((item: string) => sourceTypes.add(item));
     }
 
     return sourceTypes.size ? Array.from(sourceTypes) : undefined;
@@ -205,7 +205,7 @@ export class AdvisorService {
             ? `${symbol}: $${(quote.c || 0).toFixed(2)} (${(quote.dp || 0).toFixed(2)}%) | Day H/L: $${(quote.h || 0).toFixed(2)} / $${(quote.l || 0).toFixed(2)}`
             : `${symbol}: quote unavailable`;
 
-          const topNews = (news || []).slice(0, 2).map((item) => `- ${item.headline}`).join("\n");
+          const topNews = (news || []).slice(0, 2).map((item: { headline: string }) => `- ${item.headline}`).join("\n");
           return `${quoteLine}${topNews ? `\nRecent headlines:\n${topNews}` : ""}`;
         } catch (_error) {
           return `${symbol}: real-time data unavailable`;
@@ -246,7 +246,7 @@ export class AdvisorService {
   }
 
   private serializeSourcesForStorage(sources: RetrievalSource[]): string[] {
-    return sources.map((source) => JSON.stringify(source));
+    return sources.map((source: RetrievalSource) => JSON.stringify(source));
   }
 
   private buildGuardrailAppendix(
@@ -287,12 +287,12 @@ export class AdvisorService {
       const holdings = portfolio?.holdings || [];
       if (holdings.length > 0) {
         const holdingSymbols = holdings
-          .map((h: any) => h.symbol || h.asset?.symbol)
+          .map((h: { symbol?: string; asset?: { symbol: string } }) => h.symbol || h.asset?.symbol)
           .filter(Boolean)
           .join(" ");
 
         holdings
-          .map((h: any) => h.symbol || h.asset?.symbol)
+          .map((h: { symbol?: string; asset?: { symbol: string } }) => h.symbol || h.asset?.symbol)
           .filter(Boolean)
           .forEach((symbol: string) => symbolsToPrime.add(String(symbol).toUpperCase()));
 
@@ -303,10 +303,10 @@ export class AdvisorService {
     }
 
     const querySymbols = expandedQuery.match(/\b[A-Z]{1,5}\b/g) || [];
-    querySymbols.forEach((symbol) => symbolsToPrime.add(symbol));
+    querySymbols.forEach((symbol: string) => symbolsToPrime.add(symbol));
 
     const classification = await this.classifyIntent(userMessage, Array.from(symbolsToPrime));
-    classification.entities.forEach((symbol) => symbolsToPrime.add(symbol));
+    classification.entities.forEach((symbol: string) => symbolsToPrime.add(symbol));
 
     const queryIngestionEnabled = process.env.RAG_QUERY_INGEST_ENABLED === "true";
     if (queryIngestionEnabled && symbolsToPrime.size > 0) {
@@ -314,7 +314,7 @@ export class AdvisorService {
       void Promise.allSettled(
         Array.from(symbolsToPrime)
           .slice(0, 3)
-          .map((symbol) => RAGService.ensureTickerContextFresh(symbol))
+          .map((symbol: string) => RAGService.ensureTickerContextFresh(symbol))
       );
     }
 
@@ -352,7 +352,7 @@ export class AdvisorService {
 
     const sourcesById = new Map<string, RetrievalSource>();
     const ragContextStr = ragDocs
-      .map((doc: any, idx: number) => {
+      .map((doc: { id?: string; sourceType?: string; metadata?: any; documentType?: string; ticker?: string; source?: string; publishedAt?: string; content?: string }, idx: number) => {
         const sourceType = doc.sourceType || doc.metadata?.type || "unknown";
         const documentType = doc.documentType || doc.metadata?.type || "unknown";
         const ticker = doc.ticker || doc.metadata?.ticker;
@@ -455,7 +455,7 @@ CORE DIRECTIVES:
           if (!realPortfolio.holdings || realPortfolio.holdings.length === 0) {
             systemPrompt += `\n(No active real positions.)`;
           } else {
-            realPortfolio.holdings.forEach((h: any) => {
+            realPortfolio.holdings.forEach((h: { asset?: { symbol: string }; symbol?: string; averageBuyPrice?: number; averagePrice?: number; currentPrice?: number; unrealizedPnL?: number; unrealizedPnLPercent?: number; quantity?: number }) => {
               const symbol = h.asset?.symbol || h.symbol;
               const avgPrice = Number(h.averageBuyPrice || h.averagePrice || 0);
               const currPrice = Number(h.currentPrice || 0);
@@ -469,7 +469,7 @@ CORE DIRECTIVES:
 
           if (Array.isArray(realPortfolio.recentTransactions) && realPortfolio.recentTransactions.length > 0) {
             systemPrompt += `\n\n### Recent Transactions (Newest First):`;
-            realPortfolio.recentTransactions.slice(0, 5).forEach((t: any) => {
+            realPortfolio.recentTransactions.slice(0, 5).forEach((t: { asset?: { symbol: string }; type?: string; quantity?: number; pricePerUnit?: number }) => {
               const symbol = t.asset?.symbol || 'N/A';
               const type = t.type || 'N/A';
               const qty = Number(t.quantity || 0);
@@ -514,7 +514,7 @@ CORE DIRECTIVES:
           if (!portfolioData.holdings || portfolioData.holdings.length === 0) {
             systemPrompt += `\n(No active positions. User is holding 100% cash.)`;
           } else {
-             portfolioData.holdings.forEach((h: any) => {
+             portfolioData.holdings.forEach((h: { asset?: { symbol: string }; symbol?: string; averageBuyPrice?: number; averagePrice?: number; currentPrice?: number; unrealizedPnL?: number; unrealizedPnLPercent?: number; quantity?: number }) => {
               const symbol = h.asset?.symbol || h.symbol;
               const avgPrice = Number(h.averageBuyPrice || h.averagePrice || 0);
               const currPrice = Number(h.currentPrice || 0);
@@ -631,7 +631,7 @@ ${context.ragContext}
       ];
 
       // Add previous messages from session
-      session.messages.forEach((msg) => {
+      session.messages.forEach((msg: { role: string; content: string }) => {
         messages.push({
           role: msg.role === "USER" ? "user" : "assistant",
           content: msg.content,
@@ -768,7 +768,7 @@ ${context.ragContext}
         { role: "system", content: systemPrompt },
       ];
 
-      session.messages.forEach((msg) => {
+      session.messages.forEach((msg: { role: string; content: string }) => {
         messages.push({
           role: msg.role === "USER" ? "user" : "assistant",
           content: msg.content,
@@ -864,7 +864,7 @@ ${context.ragContext}
         },
       });
 
-      return sessions.map((session) => ({
+      return sessions.map((session: { id: string; title: string; messages: Array<{ content?: string }>; updatedAt: Date }) => ({
         id: session.id,
         title: session.title,
         preview: session.messages[0]?.content?.substring(0, 100) || "New conversation",
@@ -903,11 +903,11 @@ ${context.ragContext}
         title: session.title,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        messages: session.messages.map((msg) => ({
+        messages: session.messages.map((msg: { id: string; role: string; content: string; sources: string[]; createdAt: Date }) => ({
           id: msg.id,
           role: msg.role.toLowerCase(),
           content: msg.content,
-          sources: msg.sources.map((source) => this.parseStoredSource(source)),
+          sources: msg.sources.map((source: string) => this.parseStoredSource(source)),
           timestamp: msg.createdAt,
         })),
       };

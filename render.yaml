@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: WealthFlow
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm run render-build
+    startCommand: npm start
+    nativeEnvironments:
+      - build-essentials
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=512
+      - key: npm_config_build_from_source
+        value: "true"
