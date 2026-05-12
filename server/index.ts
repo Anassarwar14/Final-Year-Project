@@ -10,6 +10,7 @@ import { alphaVantageService } from "./services/alphaVantageService";
 import { prisma } from "./lib/db";
 import { tradingService } from "./modules/trading/service";
 import { RAGService } from "./modules/rag/service";
+import type { Prisma } from "@prisma/client";
 
 const globalForRagScheduler = globalThis as unknown as {
   ragRefreshInitialized?: boolean;
@@ -40,7 +41,7 @@ if (!isBuildPhase) {
         console.log("Market is OPEN - processing all pending orders...");
 
         // Find all users with pending orders
-        const pendingOrders = await prisma.simulatorTransaction.findMany({
+        const pendingOrders: Prisma.SimulatorTransactionGetPayload<{ include: { profile: true } }>[] = await prisma.simulatorTransaction.findMany({
           where: { pending: true },
           include: { profile: true },
           distinct: ["profileId"],
