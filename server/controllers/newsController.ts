@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as newsService from '../services/newsServices';
-import { NewsSentiment } from '@prisma/client'; // Import enum from Prisma
+
+type NewsSentiment = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
 
 /**
  * 1. Get All News (for news/page.tsx)

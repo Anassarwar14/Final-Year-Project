@@ -1,5 +1,7 @@
-import { PrismaClient, NewsSentiment, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import axios from 'axios'; // For making HTTP requests to external APIs
+
+type NewsSentiment = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
 
 // Initialize Prisma Client
 const prisma = new PrismaClient();
